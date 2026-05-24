@@ -16,34 +16,30 @@ public struct CodexUsageParser: Sendable {
         defer {
             try? handle.close()
         }
-        var buffer = Data()
+        var pendingLine = Data()
 
         while true {
             try Task.checkCancellation()
-            let chunk = try handle.read(upToCount: 128 * 1024) ?? Data()
+            let chunk = try handle.read(upToCount: Self.chunkByteCount) ?? Data()
             if chunk.isEmpty {
                 break
             }
-            buffer.append(chunk)
 
-            while let newline = buffer.firstRange(of: Self.newlineData) {
-                let line = buffer.subdata(in: buffer.startIndex..<newline.lowerBound)
-                Self.parseLine(
-                    line,
-                    sessionId: sessionId,
-                    fileURL: fileURL,
-                    fallbackModifiedDate: fallbackModifiedDate,
-                    events: &events,
-                    currentModel: &currentModel,
-                    previousTotalUsage: &previousTotalUsage
-                )
-                buffer.removeSubrange(buffer.startIndex..<newline.upperBound)
-            }
+            try Self.parseChunk(
+                chunk,
+                pendingLine: &pendingLine,
+                sessionId: sessionId,
+                fileURL: fileURL,
+                fallbackModifiedDate: fallbackModifiedDate,
+                events: &events,
+                currentModel: &currentModel,
+                previousTotalUsage: &previousTotalUsage
+            )
         }
 
-        if !buffer.isEmpty {
+        if !pendingLine.isEmpty {
             Self.parseLine(
-                buffer,
+                pendingLine,
                 sessionId: sessionId,
                 fileURL: fileURL,
                 fallbackModifiedDate: fallbackModifiedDate,
@@ -54,6 +50,53 @@ public struct CodexUsageParser: Sendable {
         }
 
         return events
+    }
+
+    private static func parseChunk(
+        _ chunk: Data,
+        pendingLine: inout Data,
+        sessionId: String,
+        fileURL: URL,
+        fallbackModifiedDate: Date,
+        events: inout [CodexUsageEvent],
+        currentModel: inout String?,
+        previousTotalUsage: inout RawUsage?
+    ) throws {
+        var lineStart = chunk.startIndex
+
+        while lineStart < chunk.endIndex {
+            try Task.checkCancellation()
+            guard let newlineIndex = chunk[lineStart..<chunk.endIndex].firstIndex(of: Self.newlineByte) else {
+                pendingLine.append(contentsOf: chunk[lineStart..<chunk.endIndex])
+                return
+            }
+
+            if pendingLine.isEmpty {
+                Self.parseLine(
+                    chunk.subdata(in: lineStart..<newlineIndex),
+                    sessionId: sessionId,
+                    fileURL: fileURL,
+                    fallbackModifiedDate: fallbackModifiedDate,
+                    events: &events,
+                    currentModel: &currentModel,
+                    previousTotalUsage: &previousTotalUsage
+                )
+            } else {
+                pendingLine.append(contentsOf: chunk[lineStart..<newlineIndex])
+                Self.parseLine(
+                    pendingLine,
+                    sessionId: sessionId,
+                    fileURL: fileURL,
+                    fallbackModifiedDate: fallbackModifiedDate,
+                    events: &events,
+                    currentModel: &currentModel,
+                    previousTotalUsage: &previousTotalUsage
+                )
+                pendingLine.removeAll(keepingCapacity: false)
+            }
+
+            lineStart = chunk.index(after: newlineIndex)
+        }
     }
 
     private static func parseLine(
@@ -169,25 +212,25 @@ public struct CodexUsageParser: Sendable {
         return formatter.date(from: string)
     }
 
-    private static let newlineData = Data([0x0A])
+    private static let chunkByteCount = 1024 * 1024
+    private static let newlineByte = UInt8(ascii: "\n")
     private static let relevantMarkers = [
         Data(#""turn_context""#.utf8),
-        Data(#""token_count""#.utf8),
-        Data(#""usage""#.utf8),
-        Data(#""input_tokens""#.utf8),
-        Data(#""prompt_tokens""#.utf8)
+        Data(#""token_count""#.utf8)
     ]
 }
 
 private struct RawUsage: Equatable {
+    let rawInputTokens: Int
     let inputTokens: Int
     let cachedInputTokens: Int
     let outputTokens: Int
     let reasoningTokens: Int
     let totalTokens: Int
+    let explicitTotalTokens: Int?
 
     init?(_ dictionary: [String: Any]) {
-        let input = Self.int(dictionary["input_tokens"])
+        let rawInput = Self.int(dictionary["input_tokens"])
             ?? Self.int(dictionary["prompt_tokens"])
             ?? Self.int(dictionary["input"])
             ?? 0
@@ -202,19 +245,17 @@ private struct RawUsage: Equatable {
         let reasoning = Self.int(dictionary["reasoning_output_tokens"])
             ?? Self.int(dictionary["reasoning_tokens"])
             ?? 0
-        let total = Self.int(dictionary["total_tokens"]) ?? input + output + reasoning
-
         self.init(
-            inputTokens: input,
+            rawInputTokens: rawInput,
             cachedInputTokens: cached,
             outputTokens: output,
             reasoningTokens: reasoning,
-            totalTokens: total
+            explicitTotalTokens: Self.int(dictionary["total_tokens"])
         )
     }
 
     var hasTokens: Bool {
-        inputTokens + cachedInputTokens + outputTokens + reasoningTokens + totalTokens > 0
+        rawInputTokens + cachedInputTokens + outputTokens + reasoningTokens > 0
     }
 
     func subtracting(_ previous: RawUsage?) -> RawUsage {
@@ -223,26 +264,33 @@ private struct RawUsage: Equatable {
         }
 
         return RawUsage(
-            inputTokens: max(inputTokens - previous.inputTokens, 0),
+            rawInputTokens: max(rawInputTokens - previous.rawInputTokens, 0),
             cachedInputTokens: max(cachedInputTokens - previous.cachedInputTokens, 0),
             outputTokens: max(outputTokens - previous.outputTokens, 0),
             reasoningTokens: max(reasoningTokens - previous.reasoningTokens, 0),
-            totalTokens: max(totalTokens - previous.totalTokens, 0)
+            explicitTotalTokens: explicitTotalTokens.map { current in
+                max(current - (previous.explicitTotalTokens ?? 0), 0)
+            }
         )
     }
 
     private init(
-        inputTokens: Int,
+        rawInputTokens: Int,
         cachedInputTokens: Int,
         outputTokens: Int,
         reasoningTokens: Int,
-        totalTokens: Int
+        explicitTotalTokens: Int?
     ) {
+        let inputTokens = max(rawInputTokens - cachedInputTokens, 0)
+        let calculatedTotal = inputTokens + cachedInputTokens + outputTokens
+
+        self.rawInputTokens = rawInputTokens
         self.inputTokens = inputTokens
-        self.cachedInputTokens = min(cachedInputTokens, inputTokens)
+        self.cachedInputTokens = cachedInputTokens
         self.outputTokens = outputTokens
         self.reasoningTokens = reasoningTokens
-        self.totalTokens = totalTokens
+        self.totalTokens = calculatedTotal > 0 ? calculatedTotal : (explicitTotalTokens ?? 0)
+        self.explicitTotalTokens = explicitTotalTokens
     }
 
     private static func int(_ value: Any?) -> Int? {

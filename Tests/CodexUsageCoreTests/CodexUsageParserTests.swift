@@ -17,14 +17,16 @@ final class CodexUsageParserTests: XCTestCase {
 
         XCTAssertEqual(events.count, 2)
         XCTAssertEqual(events[0].model, "gpt-5.2-codex")
-        XCTAssertEqual(events[0].inputTokens, 1000)
+        XCTAssertEqual(events[0].inputTokens, 800)
         XCTAssertEqual(events[0].cachedInputTokens, 200)
         XCTAssertEqual(events[0].outputTokens, 100)
         XCTAssertEqual(events[0].reasoningTokens, 25)
-        XCTAssertEqual(events[1].inputTokens, 500)
+        XCTAssertEqual(events[0].totalTokens, 1100)
+        XCTAssertEqual(events[1].inputTokens, 400)
         XCTAssertEqual(events[1].cachedInputTokens, 100)
         XCTAssertEqual(events[1].outputTokens, 40)
         XCTAssertEqual(events[1].reasoningTokens, 10)
+        XCTAssertEqual(events[1].totalTokens, 540)
     }
 
     func testWhitespaceModelFallsBackAndMarksFallback() throws {
@@ -125,11 +127,11 @@ final class CodexUsageParserTests: XCTestCase {
             fallbackModifiedDate: Date(timeIntervalSince1970: 0)
         )
 
-        XCTAssertEqual(events[0].inputTokens, 10)
+        XCTAssertEqual(events[0].inputTokens, 6)
         XCTAssertEqual(events[0].cachedInputTokens, 4)
         XCTAssertEqual(events[0].outputTokens, 3)
         XCTAssertEqual(events[0].reasoningTokens, 2)
-        XCTAssertEqual(events[0].totalTokens, 15)
+        XCTAssertEqual(events[0].totalTokens, 13)
     }
 
     func testZeroTokenUsageAndNullInfoAreSkipped() throws {
@@ -145,6 +147,43 @@ final class CodexUsageParserTests: XCTestCase {
         )
 
         XCTAssertEqual(events, [])
+    }
+
+    func testTotalOnlyUsageIsSkipped() throws {
+        let fixture = try makeJSONL([
+            #"{"timestamp":"2026-05-24T00:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"total_tokens":25}}}}"#
+        ])
+
+        let events = try CodexUsageParser().parseFile(
+            fixture,
+            sessionsRoot: fixture.deletingLastPathComponent(),
+            fallbackModifiedDate: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(events, [])
+    }
+
+    func testLargeIrrelevantLinesDoNotBlockUsageParsing() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appendingPathComponent("large-session.jsonl")
+
+        var data = Data(repeating: UInt8(ascii: "x"), count: 16 * 1024 * 1024)
+        data.append(UInt8(ascii: "\n"))
+        data.append(Data(#"{"timestamp":"2026-05-24T00:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":7,"total_tokens":7}}}}"#.utf8))
+        try data.write(to: file)
+
+        let startedAt = Date()
+        let events = try CodexUsageParser().parseFile(
+            file,
+            sessionsRoot: directory,
+            fallbackModifiedDate: Date(timeIntervalSince1970: 0)
+        )
+        let elapsed = Date().timeIntervalSince(startedAt)
+
+        XCTAssertEqual(events.map(\.inputTokens), [7])
+        XCTAssertLessThan(elapsed, 1.0)
     }
 
     func testNestedPathSessionIdIsRelativeToSessionsRoot() throws {

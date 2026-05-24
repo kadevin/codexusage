@@ -29,11 +29,35 @@ final class UsageAggregatorTests: XCTestCase {
         XCTAssertEqual(snapshot.recentHours.last?.start, Date.codexTest("2026-05-24T10:00:00.000Z"))
         XCTAssertEqual(snapshot.recentHours.last?.id, snapshot.recentHours.last?.start)
         XCTAssertEqual(snapshot.recentHours.last?.summary.totals.inputTokens, 380)
+        XCTAssertEqual(snapshot.recentDays.count, 7)
+        XCTAssertEqual(snapshot.recentDays.first?.start, Date.codexTest("2026-05-18T00:00:00.000Z"))
+        XCTAssertEqual(snapshot.recentDays.last?.start, Date.codexTest("2026-05-24T00:00:00.000Z"))
+        XCTAssertEqual(snapshot.recentDays.last?.summary.totals.inputTokens, 490)
         XCTAssertEqual(snapshot.warnings, ["fallback-model"])
         XCTAssertEqual(
             snapshot.modelBreakdown.map(\.model),
             ["alpha-model", "beta-model", "gpt-5.2-codex", "zeta-model", "fallback-model"]
         )
+    }
+
+    func testDeduplicatesRepeatedCodexUsageEventsUsingCcusageKey() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = Date.codexTest("2026-05-24T10:30:00.000Z")
+        let duplicate = event("2026-05-24T10:00:00.000Z", model: "gpt-5.2-codex", input: 100, output: 20)
+        let events = [
+            duplicate,
+            duplicate,
+            event("2026-05-24T10:00:00.000Z", model: "gpt-5.2-codex", input: 101, output: 20)
+        ]
+
+        let snapshot = UsageAggregator(
+            calendar: calendar,
+            pricing: PricingService(speedMode: .standard, autoDetectedFast: false)
+        ).snapshot(events: events, now: now)
+
+        XCTAssertEqual(snapshot.today.totals.inputTokens, 201)
+        XCTAssertEqual(snapshot.today.totals.outputTokens, 40)
     }
 
     private func event(

@@ -1,0 +1,53 @@
+name: Build macOS App
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Test and package
+    runs-on: macos-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Run tests
+        run: swift test
+
+      - name: Package app
+        run: ./scripts/package-app.sh
+
+      - name: Verify app bundle
+        run: |
+          test -d build/CodexUsage.app
+          test -x build/CodexUsage.app/Contents/MacOS/CodexUsage
+          test -f build/CodexUsage.app/Contents/Resources/CodexUsage.icns
+          plutil -lint build/CodexUsage.app/Contents/Info.plist
+          plutil -extract CFBundleIconFile raw build/CodexUsage.app/Contents/Info.plist | grep -qx CodexUsage
+
+      - name: Create artifact zip
+        run: |
+          mkdir -p artifacts
+          ditto -c -k --keepParent build/CodexUsage.app artifacts/CodexUsage-macOS.zip
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodexUsage-macOS
+          path: artifacts/CodexUsage-macOS.zip
+          if-no-files-found: error
+          retention-days: 30

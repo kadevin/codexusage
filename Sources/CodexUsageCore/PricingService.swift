@@ -34,8 +34,7 @@ public struct PricingService: Sendable {
                 usedFallback = true
             }
 
-            let uncachedInput = max(event.inputTokens - event.cachedInputTokens, 0)
-            total += Decimal(uncachedInput) * price.inputPerMillion / 1_000_000 * multiplier
+            total += Decimal(event.inputTokens) * price.inputPerMillion / 1_000_000 * multiplier
             total += Decimal(event.cachedInputTokens) * price.cachedInputPerMillion / 1_000_000 * multiplier
             total += Decimal(event.outputTokens) * price.outputPerMillion / 1_000_000 * multiplier
         }
@@ -78,6 +77,15 @@ public struct PricingService: Sendable {
     }
 
     private static let priceTable: [(model: String, price: ModelPrice)] = [
+        (
+            "gpt-5.5",
+            ModelPrice(
+                inputPerMillion: Decimal(string: "5.00")!,
+                cachedInputPerMillion: Decimal(string: "0.50")!,
+                outputPerMillion: Decimal(string: "30.00")!,
+                fastMultiplier: Decimal(string: "2.5")!
+            )
+        ),
         (
             "gpt-5.4-mini",
             ModelPrice(

@@ -74,7 +74,7 @@ final class PricingServiceTests: XCTestCase {
                     sessionId: "s1",
                     timestamp: Date(timeIntervalSince1970: 0),
                     model: "gpt-5.2-codex",
-                    inputTokens: 1_000_000,
+                    inputTokens: 600_000,
                     cachedInputTokens: 400_000,
                     outputTokens: 0,
                     reasoningTokens: 0,
@@ -85,6 +85,50 @@ final class PricingServiceTests: XCTestCase {
         )
         XCTAssertEqual(estimate.usd, Decimal(string: "1.12"))
         XCTAssertEqual(estimate.hasUnknownPricing, false)
+        XCTAssertEqual(estimate.usedFallbackMultiplier, false)
+    }
+
+    func testGpt55PricingMatchesCcusagePricingTable() {
+        let service = PricingService(speedMode: .standard, autoDetectedFast: false)
+        let estimate = service.estimate(
+            events: [
+                CodexUsageEvent(
+                    sessionId: "s1",
+                    timestamp: Date(timeIntervalSince1970: 0),
+                    model: "gpt-5.5",
+                    inputTokens: 1_000_000,
+                    cachedInputTokens: 1_000_000,
+                    outputTokens: 1_000_000,
+                    reasoningTokens: 0,
+                    totalTokens: 3_000_000,
+                    sourceFile: URL(fileURLWithPath: "/tmp/a.jsonl")
+                )
+            ]
+        )
+
+        XCTAssertEqual(estimate.usd, Decimal(string: "35.50"))
+        XCTAssertEqual(estimate.hasUnknownPricing, false)
+    }
+
+    func testGpt55UsesExplicitFastMultiplier() {
+        let service = PricingService(speedMode: .fast, autoDetectedFast: false)
+        let estimate = service.estimate(
+            events: [
+                CodexUsageEvent(
+                    sessionId: "s1",
+                    timestamp: Date(timeIntervalSince1970: 0),
+                    model: "gpt-5.5",
+                    inputTokens: 1_000_000,
+                    cachedInputTokens: 0,
+                    outputTokens: 0,
+                    reasoningTokens: 0,
+                    totalTokens: 1_000_000,
+                    sourceFile: URL(fileURLWithPath: "/tmp/a.jsonl")
+                )
+            ]
+        )
+
+        XCTAssertEqual(estimate.usd, Decimal(string: "12.50"))
         XCTAssertEqual(estimate.usedFallbackMultiplier, false)
     }
 

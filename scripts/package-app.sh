@@ -4,12 +4,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$ROOT/build/CodexUsage.app"
 BIN="$ROOT/.build/release/CodexUsage"
+ICONSET="$ROOT/build/CodexUsage.iconset"
+ICON="$ROOT/build/CodexUsage.icns"
 
 cd "$ROOT"
 swift build -c release
+swift "$ROOT/scripts/generate-app-icon.swift" "$ICONSET" "$ICON"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/CodexUsage"
+cp "$ICON" "$APP/Contents/Resources/CodexUsage.icns"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -19,6 +23,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <string>CodexUsage</string>
   <key>CFBundleIdentifier</key>
   <string>local.codexusage.app</string>
+  <key>CFBundleIconFile</key>
+  <string>CodexUsage</string>
   <key>CFBundleName</key>
   <string>CodexUsage</string>
   <key>CFBundlePackageType</key>

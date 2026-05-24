@@ -41,7 +41,7 @@ public struct CodexUsageEvent: Equatable, Sendable {
         self.timestamp = timestamp
         self.model = model
         self.inputTokens = inputTokens
-        self.cachedInputTokens = min(cachedInputTokens, inputTokens)
+        self.cachedInputTokens = cachedInputTokens
         self.outputTokens = outputTokens
         self.reasoningTokens = reasoningTokens
         self.totalTokens = totalTokens
@@ -117,6 +117,17 @@ public struct HourBucket: Equatable, Identifiable, Sendable {
     }
 }
 
+public struct DayBucket: Equatable, Identifiable, Sendable {
+    public var id: Date { start }
+    public let start: Date
+    public let summary: UsageSummary
+
+    public init(start: Date, summary: UsageSummary) {
+        self.start = start
+        self.summary = summary
+    }
+}
+
 public struct ModelBreakdown: Equatable, Identifiable, Sendable {
     public var id: String { model }
     public let model: String
@@ -133,6 +144,7 @@ public struct UsageSnapshot: Equatable, Sendable {
     public let today: UsageSummary
     public let currentHour: UsageSummary
     public let recentHours: [HourBucket]
+    public let recentDays: [DayBucket]
     public let modelBreakdown: [ModelBreakdown]
     public let warnings: [String]
 
@@ -141,6 +153,7 @@ public struct UsageSnapshot: Equatable, Sendable {
         today: UsageSummary,
         currentHour: UsageSummary,
         recentHours: [HourBucket],
+        recentDays: [DayBucket],
         modelBreakdown: [ModelBreakdown],
         warnings: [String]
     ) {
@@ -148,6 +161,7 @@ public struct UsageSnapshot: Equatable, Sendable {
         self.today = today
         self.currentHour = currentHour
         self.recentHours = recentHours
+        self.recentDays = recentDays
         self.modelBreakdown = modelBreakdown
         self.warnings = warnings
     }

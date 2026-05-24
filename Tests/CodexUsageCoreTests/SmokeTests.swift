@@ -29,7 +29,7 @@ final class SmokeTests: XCTestCase {
         XCTAssertFalse(summary.cost.usedFallbackMultiplier)
     }
 
-    func testCodexUsageEventClampsCachedInputTokens() {
+    func testCodexUsageEventKeepsCachedInputTokensSeparate() {
         let event = CodexUsageEvent(
             sessionId: "session-1",
             timestamp: Date(timeIntervalSince1970: 0),
@@ -42,6 +42,6 @@ final class SmokeTests: XCTestCase {
             sourceFile: URL(fileURLWithPath: "/tmp/session.jsonl")
         )
 
-        XCTAssertEqual(event.cachedInputTokens, 10)
+        XCTAssertEqual(event.cachedInputTokens, 25)
     }
 }

@@ -4,33 +4,46 @@ import SwiftUI
 
 @main
 struct CodexUsageApp: App {
-    @State private var model = AppModel()
-    @State private var windowController: UsageWindowController?
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        MenuBarExtra(model.strings.codexUsageTitle, systemImage: "bolt.horizontal.circle") {
-            Button(model.strings.codexUsageTitle) {
-                showWindow()
+        MenuBarExtra(appDelegate.model.strings.codexUsageTitle, systemImage: "bolt.horizontal.circle") {
+            Button(appDelegate.model.strings.codexUsageTitle) {
+                appDelegate.showWindow()
             }
-            Button(model.strings.refresh) {
-                model.refresh()
+            Button(appDelegate.model.strings.refresh) {
+                appDelegate.model.refresh()
             }
+            Toggle(appDelegate.model.strings.alwaysOnTop, isOn: Binding(
+                get: { appDelegate.model.isAlwaysOnTop },
+                set: { appDelegate.model.isAlwaysOnTop = $0 }
+            ))
             Divider()
             SettingsLink {
-                Text(model.strings.preferences)
+                Text(appDelegate.model.strings.preferences)
             }
-            Button(model.strings.quit) {
+            Button(appDelegate.model.strings.quit) {
                 NSApplication.shared.terminate(nil)
             }
         }
         .menuBarExtraStyle(.menu)
 
         Settings {
-            PreferencesView(model: model)
+            PreferencesView(model: appDelegate.model)
         }
     }
+}
 
-    private func showWindow() {
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    let model = AppModel()
+    private var windowController: UsageWindowController?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        showWindow()
+    }
+
+    func showWindow() {
         if windowController == nil {
             windowController = UsageWindowController(model: model)
         }

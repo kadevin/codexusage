@@ -30,6 +30,11 @@ final class AppModel {
             UserDefaults.standard.set(pathOverride, forKey: Self.pathOverrideKey)
         }
     }
+    var panelOpacity: Double {
+        didSet {
+            UserDefaults.standard.set(panelOpacity, forKey: Self.panelOpacityKey)
+        }
+    }
 
     @ObservationIgnored var onAlwaysOnTopChanged: ((Bool) -> Void)?
 
@@ -41,6 +46,7 @@ final class AppModel {
     private static let refreshIntervalKey = "refreshInterval"
     private static let speedModeKey = "speedMode"
     private static let pathOverrideKey = "pathOverride"
+    private static let panelOpacityKey = "panelOpacity"
 
     init(strings: AppStrings = AppStrings()) {
         self.strings = strings
@@ -53,6 +59,7 @@ final class AppModel {
         let savedSpeed = UserDefaults.standard.string(forKey: Self.speedModeKey)
         self.speedMode = savedSpeed.flatMap(SpeedMode.init(rawValue:)) ?? .auto
         self.pathOverride = UserDefaults.standard.string(forKey: Self.pathOverrideKey) ?? ""
+        self.panelOpacity = UserDefaults.standard.object(forKey: Self.panelOpacityKey) as? Double ?? 0.92
         self.snapshot = Self.emptySnapshot()
         refresh()
     }
@@ -121,7 +128,8 @@ final class AppModel {
         let dayStart = calendar.startOfDay(for: now)
         let hourStart = calendar.dateInterval(of: .hour, for: now)?.start ?? now
         let recentStart = calendar.date(byAdding: .hour, value: -23, to: hourStart) ?? dayStart
-        let since = min(dayStart, recentStart)
+        let recentDaysStart = calendar.date(byAdding: .day, value: -6, to: dayStart) ?? dayStart
+        let since = min(dayStart, recentStart, recentDaysStart)
         let events = try store.loadEvents(root: path, since: since)
         try Task.checkCancellation()
 
@@ -154,6 +162,7 @@ final class AppModel {
             today: zeroSummary,
             currentHour: zeroSummary,
             recentHours: [],
+            recentDays: [],
             modelBreakdown: [],
             warnings: []
         )

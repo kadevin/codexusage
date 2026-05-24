@@ -24,6 +24,7 @@ public struct AppStrings: Equatable, Sendable {
     public var alwaysOnTop: String { text(en: "Always on Top", zh: "窗口置顶") }
     public var refreshInterval: String { text(en: "Refresh Interval", zh: "刷新间隔") }
     public var speedMode: String { text(en: "Speed Pricing", zh: "速度计价") }
+    public var panelOpacity: String { text(en: "Panel Opacity", zh: "面板透明度") }
     public var auto: String { text(en: "Auto", zh: "自动") }
     public var standard: String { text(en: "Standard", zh: "标准") }
     public var fast: String { text(en: "Fast", zh: "快速") }
@@ -36,6 +37,17 @@ public struct AppStrings: Equatable, Sendable {
     public var partialPricing: String { text(en: "Partial", zh: "部分") }
     public var fallbackPricing: String { text(en: "Fallback", zh: "回退") }
     public var lastUpdated: String { text(en: "Updated", zh: "更新于") }
+    public var inputShort: String { text(en: "In", zh: "入") }
+    public var cachedShort: String { text(en: "Cache", zh: "缓存") }
+    public var outputShort: String { text(en: "Out", zh: "出") }
+    public var reasoningShort: String { text(en: "Think", zh: "思考") }
+    public var usageTrend: String { text(en: "Trend", zh: "趋势") }
+    public var showTrend: String { text(en: "Show Trend", zh: "显示趋势") }
+    public var last24Hours: String { text(en: "24h", zh: "24 小时") }
+    public var last7Days: String { text(en: "7d", zh: "7 天") }
+    public var period: String { text(en: "Period", zh: "时间") }
+    public var tokens: String { text(en: "Tokens", zh: "用量") }
+    public var cost: String { text(en: "Cost", zh: "成本") }
 
     public func intervalLabel(_ interval: RefreshInterval) -> String {
         switch (language, interval) {
