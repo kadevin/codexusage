@@ -59,6 +59,7 @@ final class AppModel {
 
     func refresh() {
         refreshTask?.cancel()
+        statusMessage = strings.loading
 
         let path = resolver.resolve(userOverride: pathOverride.isEmpty ? nil : pathOverride)
         let speedMode = speedMode
@@ -115,14 +116,20 @@ final class AppModel {
         try Task.checkCancellation()
 
         let store = CodexLogStore(parser: CodexUsageParser())
-        let events = try store.loadEvents(root: path)
+        let now = Date()
+        let calendar = Calendar.current
+        let dayStart = calendar.startOfDay(for: now)
+        let hourStart = calendar.dateInterval(of: .hour, for: now)?.start ?? now
+        let recentStart = calendar.date(byAdding: .hour, value: -23, to: hourStart) ?? dayStart
+        let since = min(dayStart, recentStart)
+        let events = try store.loadEvents(root: path, since: since)
         try Task.checkCancellation()
 
         let autoDetectedFast = store.detectFastMode(root: path)
         try Task.checkCancellation()
 
         let pricing = PricingService(speedMode: speedMode, autoDetectedFast: autoDetectedFast)
-        let snapshot = UsageAggregator(pricing: pricing).snapshot(events: events, now: Date())
+        let snapshot = UsageAggregator(calendar: calendar, pricing: pricing).snapshot(events: events, now: now)
         try Task.checkCancellation()
 
         return AppRefreshResult(

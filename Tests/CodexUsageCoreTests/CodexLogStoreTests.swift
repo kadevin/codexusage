@@ -92,6 +92,30 @@ final class CodexLogStoreTests: XCTestCase {
         XCTAssertEqual(events.first?.sessionId, "project-a/session")
     }
 
+    func testLoadEventsWithSinceSkipsOldSessionFiles() throws {
+        let root = try makeTemporaryDirectory()
+        let sessions = root.appendingPathComponent("sessions", isDirectory: true)
+        let oldDirectory = sessions.appendingPathComponent("2026/05/22", isDirectory: true)
+        let recentDirectory = sessions.appendingPathComponent("2026/05/24", isDirectory: true)
+        try FileManager.default.createDirectory(at: oldDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: recentDirectory, withIntermediateDirectories: true)
+
+        let oldSession = oldDirectory.appendingPathComponent("old.jsonl")
+        let recentSession = recentDirectory.appendingPathComponent("recent.jsonl")
+        try tokenCountLine(inputTokens: 1).write(to: oldSession, atomically: true, encoding: .utf8)
+        try tokenCountLine(inputTokens: 7).write(to: recentSession, atomically: true, encoding: .utf8)
+
+        let oldDate = try date("2026-05-22T01:00:00Z")
+        let recentDate = try date("2026-05-24T01:00:00Z")
+        try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: oldSession.path)
+        try FileManager.default.setAttributes([.modificationDate: recentDate], ofItemAtPath: recentSession.path)
+
+        let since = try date("2026-05-24T00:00:00Z")
+        let events = try CodexLogStore().loadEvents(root: root, since: since)
+
+        XCTAssertEqual(events.map(\.inputTokens), [7])
+    }
+
     func testDetectsPriorityServiceTier() throws {
         let root = try makeTemporaryDirectory()
         try writeConfig(#"service_tier = "priority""#, root: root)
@@ -139,5 +163,13 @@ final class CodexLogStoreTests: XCTestCase {
 
     private func tokenCountLine(inputTokens: Int) -> String {
         #"{"timestamp":"2026-05-24T00:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":\#(inputTokens),"total_tokens":\#(inputTokens)}}}}"#
+    }
+
+    private func date(_ string: String) throws -> Date {
+        let formatter = ISO8601DateFormatter()
+        guard let date = formatter.date(from: string) else {
+            throw CocoaError(.coderInvalidValue)
+        }
+        return date
     }
 }

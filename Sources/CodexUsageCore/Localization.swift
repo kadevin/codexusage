@@ -28,6 +28,7 @@ public struct AppStrings: Equatable, Sendable {
     public var standard: String { text(en: "Standard", zh: "标准") }
     public var fast: String { text(en: "Fast", zh: "快速") }
     public var codexPath: String { text(en: "Codex Path", zh: "Codex 路径") }
+    public var loading: String { text(en: "Loading Codex data...", zh: "正在读取 Codex 数据...") }
     public var noData: String { text(en: "No Codex data found", zh: "未找到 Codex 数据") }
     public var unreadablePath: String { text(en: "Path is not readable", zh: "路径不可读取") }
     public var unknownPricing: String { text(en: "Unknown pricing", zh: "未知价格") }

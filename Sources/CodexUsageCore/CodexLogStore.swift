@@ -7,8 +7,8 @@ public struct CodexLogStore: Sendable {
         self.parser = parser
     }
 
-    public func loadEvents(root: URL) throws -> [CodexUsageEvent] {
-        let files = try discoverJSONLFiles(root: root)
+    public func loadEvents(root: URL, since: Date? = nil) throws -> [CodexUsageEvent] {
+        let files = try discoverJSONLFiles(root: root, since: since)
         let sessionsRoot = sessionsDirectoryRoot(for: root).resolvingSymlinksInPath()
 
         var events: [CodexUsageEvent] = []
@@ -28,14 +28,14 @@ public struct CodexLogStore: Sendable {
         return events
     }
 
-    public func discoverJSONLFiles(root: URL) throws -> [URL] {
+    public func discoverJSONLFiles(root: URL, since: Date? = nil) throws -> [URL] {
         try validateReadableDirectory(root)
         let scanRoot = sessionsDirectoryRoot(for: root)
         try validateReadableDirectory(scanRoot)
 
         guard let enumerator = FileManager.default.enumerator(
             at: scanRoot,
-            includingPropertiesForKeys: [.isRegularFileKey],
+            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
             options: [.skipsHiddenFiles]
         ) else {
             return []
@@ -44,8 +44,11 @@ public struct CodexLogStore: Sendable {
         var files: [URL] = []
         for case let file as URL in enumerator {
             try Task.checkCancellation()
-            let values = try file.resourceValues(forKeys: [.isRegularFileKey])
+            let values = try file.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey])
             guard values.isRegularFile == true, file.pathExtension == "jsonl" else {
+                continue
+            }
+            if let since, !shouldInclude(file: file, modified: values.contentModificationDate, since: since) {
                 continue
             }
             files.append(file)
@@ -83,6 +86,48 @@ public struct CodexLogStore: Sendable {
         return FileManager.default.fileExists(atPath: sessionsRoot.path, isDirectory: &isDirectory) && isDirectory.boolValue
             ? sessionsRoot
             : root
+    }
+
+    private func shouldInclude(file: URL, modified: Date?, since: Date) -> Bool {
+        if let modified, modified >= since {
+            return true
+        }
+
+        guard let sessionDay = sessionDayFromPath(file.path) else {
+            return false
+        }
+
+        return sessionDay >= Calendar.current.startOfDay(for: since)
+    }
+
+    private func sessionDayFromPath(_ path: String) -> Date? {
+        let parts = path.split(separator: "/").map(String.init)
+        guard parts.count >= 3 else {
+            return nil
+        }
+
+        for index in 0...(parts.count - 3) {
+            guard
+                parts[index].count == 4,
+                parts[index + 1].count == 2,
+                parts[index + 2].count == 2,
+                let year = Int(parts[index]),
+                let month = Int(parts[index + 1]),
+                let day = Int(parts[index + 2])
+            else {
+                continue
+            }
+
+            var components = DateComponents()
+            components.calendar = Calendar(identifier: .gregorian)
+            components.timeZone = .current
+            components.year = year
+            components.month = month
+            components.day = day
+            return components.date
+        }
+
+        return nil
     }
 
     private func validateReadableDirectory(_ root: URL) throws {
