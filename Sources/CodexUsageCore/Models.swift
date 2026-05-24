@@ -105,3 +105,51 @@ public struct UsageSummary: Equatable, Sendable {
         self.cost = cost
     }
 }
+
+public struct HourBucket: Equatable, Identifiable, Sendable {
+    public let id: Date
+    public let start: Date
+    public let summary: UsageSummary
+
+    public init(id: Date, start: Date, summary: UsageSummary) {
+        self.id = id
+        self.start = start
+        self.summary = summary
+    }
+}
+
+public struct ModelBreakdown: Equatable, Identifiable, Sendable {
+    public var id: String { model }
+    public let model: String
+    public let summary: UsageSummary
+
+    public init(model: String, summary: UsageSummary) {
+        self.model = model
+        self.summary = summary
+    }
+}
+
+public struct UsageSnapshot: Equatable, Sendable {
+    public let generatedAt: Date
+    public let today: UsageSummary
+    public let currentHour: UsageSummary
+    public let recentHours: [HourBucket]
+    public let modelBreakdown: [ModelBreakdown]
+    public let warnings: [String]
+
+    public init(
+        generatedAt: Date,
+        today: UsageSummary,
+        currentHour: UsageSummary,
+        recentHours: [HourBucket],
+        modelBreakdown: [ModelBreakdown],
+        warnings: [String]
+    ) {
+        self.generatedAt = generatedAt
+        self.today = today
+        self.currentHour = currentHour
+        self.recentHours = recentHours
+        self.modelBreakdown = modelBreakdown
+        self.warnings = warnings
+    }
+}
