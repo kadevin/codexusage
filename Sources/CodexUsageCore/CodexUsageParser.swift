@@ -24,12 +24,8 @@ public struct CodexUsageParser: Sendable {
             }
 
             if object["type"] as? String == "turn_context" {
-                if
-                    let payload = object["payload"] as? [String: Any],
-                    let model = payload["model"] as? String,
-                    !model.isEmpty
-                {
-                    currentModel = model
+                if let payload = object["payload"] as? [String: Any], payload.keys.contains("model") {
+                    currentModel = Self.normalizedModel(payload["model"])
                 }
                 continue
             }
@@ -56,8 +52,8 @@ public struct CodexUsageParser: Sendable {
                 continue
             }
 
-            let payloadModel = payload["model"] as? String
-            let infoModel = info?["model"] as? String
+            let payloadModel = Self.normalizedModel(payload["model"])
+            let infoModel = Self.normalizedModel(info?["model"])
             let model = payloadModel ?? infoModel ?? currentModel ?? "gpt-5"
             let isFallbackModel = payloadModel == nil && infoModel == nil && currentModel == nil
 
@@ -76,6 +72,15 @@ public struct CodexUsageParser: Sendable {
         }
 
         return events
+    }
+
+    private static func normalizedModel(_ value: Any?) -> String? {
+        guard let string = value as? String else {
+            return nil
+        }
+
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private static func sessionId(for fileURL: URL, sessionsRoot: URL) -> String {
@@ -180,15 +185,38 @@ private struct RawUsage: Equatable {
     }
 
     private static func int(_ value: Any?) -> Int? {
-        if let value = value as? Int {
-            return value
-        }
         if let value = value as? NSNumber {
+            guard CFGetTypeID(value) != CFBooleanGetTypeID() else {
+                return nil
+            }
+
+            let decimal = value.decimalValue
+            guard decimal >= 0, decimal <= Decimal(Int.max) else {
+                return nil
+            }
+
+            var source = decimal
+            var rounded = Decimal()
+            NSDecimalRound(&rounded, &source, 0, .plain)
+            guard rounded == decimal else {
+                return nil
+            }
+
             return value.intValue
         }
-        if let value = value as? String {
-            return Int(value)
+
+        if let value = value as? Int {
+            return value >= 0 ? value : nil
         }
+
+        if let value = value as? String {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, let parsed = Int(trimmed), parsed >= 0 else {
+                return nil
+            }
+            return parsed
+        }
+
         return nil
     }
 }
