@@ -144,6 +144,13 @@ final class CodexLogStoreTests: XCTestCase {
         XCTAssertFalse(CodexLogStore().detectFastMode(root: root))
     }
 
+    func testDetectsQuotedPriorityServiceTierWithInlineComment() throws {
+        let root = try makeTemporaryDirectory()
+        try writeConfig(#"service_tier = 'priority' # use higher tier"#, root: root)
+
+        XCTAssertTrue(CodexLogStore().detectFastMode(root: root))
+    }
+
     func testMissingConfigDoesNotEnableFastMode() throws {
         let root = try makeTemporaryDirectory()
 

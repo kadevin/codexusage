@@ -11,18 +11,54 @@ public struct CodexLogStore: Sendable {
         let files = try discoverJSONLFiles(root: root, since: since)
         let sessionsRoot = sessionsDirectoryRoot(for: root).resolvingSymlinksInPath()
 
+        guard files.count > 1 else {
+            return try files.flatMap { file in
+                try Task.checkCancellation()
+                return try loadEvents(file: file, sessionsRoot: sessionsRoot)
+            }
+        }
+
+        let workerCount = min(max(ProcessInfo.processInfo.activeProcessorCount, 1), files.count)
+        let chunks = chunkFileIndexesBySize(files, workerCount: workerCount)
+        let results = ParallelLoadResults(count: files.count)
+
+        DispatchQueue.concurrentPerform(iterations: chunks.count) { chunkIndex in
+            for fileIndex in chunks[chunkIndex] {
+                if results.shouldStop {
+                    return
+                }
+
+                do {
+                    try Task.checkCancellation()
+                    let events = try loadEvents(file: files[fileIndex], sessionsRoot: sessionsRoot)
+                    results.set(events: events, at: fileIndex)
+                } catch {
+                    results.set(error: error)
+                    return
+                }
+            }
+        }
+
+        return try results.flattened()
+    }
+
+    private func loadEvents(file: URL, sessionsRoot: URL) throws -> [CodexUsageEvent] {
+        let resolvedFile = file.resolvingSymlinksInPath()
+        let modified = try? FileManager.default
+            .attributesOfItem(atPath: file.path)[.modificationDate] as? Date
+
+        return try parser.parseFile(
+            resolvedFile,
+            sessionsRoot: sessionsRoot,
+            fallbackModifiedDate: modified ?? Date()
+        )
+    }
+
+    private func loadEventsSequential(files: [URL], sessionsRoot: URL) throws -> [CodexUsageEvent] {
         var events: [CodexUsageEvent] = []
         for file in files {
             try Task.checkCancellation()
-            let resolvedFile = file.resolvingSymlinksInPath()
-            let modified = try? FileManager.default
-                .attributesOfItem(atPath: file.path)[.modificationDate] as? Date
-
-            events.append(contentsOf: try parser.parseFile(
-                resolvedFile,
-                sessionsRoot: sessionsRoot,
-                fallbackModifiedDate: modified ?? Date()
-            ))
+            events.append(contentsOf: try loadEvents(file: file, sessionsRoot: sessionsRoot))
         }
 
         return events
@@ -76,7 +112,12 @@ public struct CodexLogStore: Sendable {
                 return false
             }
 
-            return parts[1] == #""priority""# || parts[1] == #""fast""#
+            let value = parts[1].split(separator: "#", maxSplits: 1).first.map(String.init) ?? parts[1]
+            let normalized = value
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: #""'"#))
+
+            return normalized == "priority" || normalized == "fast"
         }
     }
 
@@ -130,6 +171,33 @@ public struct CodexLogStore: Sendable {
         return nil
     }
 
+    private func chunkFileIndexesBySize(_ files: [URL], workerCount: Int) -> [[Int]] {
+        var weightedIndexes: [(index: Int, size: UInt64)] = []
+        weightedIndexes.reserveCapacity(files.count)
+        for (index, file) in files.enumerated() {
+            let size = (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?
+                .uint64Value ?? 0
+            weightedIndexes.append((index, size))
+        }
+
+        weightedIndexes.sort {
+            if $0.size == $1.size {
+                return $0.index < $1.index
+            }
+            return $0.size > $1.size
+        }
+
+        var chunks = Array(repeating: [Int](), count: workerCount)
+        var chunkSizes = Array(repeating: UInt64.zero, count: workerCount)
+        for weightedIndex in weightedIndexes {
+            let target = chunkSizes.indices.min { chunkSizes[$0] < chunkSizes[$1] } ?? 0
+            chunks[target].append(weightedIndex.index)
+            chunkSizes[target] = chunkSizes[target].saturatingAdd(weightedIndex.size)
+        }
+
+        return chunks.filter { !$0.isEmpty }
+    }
+
     private func validateReadableDirectory(_ root: URL) throws {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
@@ -139,5 +207,51 @@ public struct CodexLogStore: Sendable {
         guard FileManager.default.isReadableFile(atPath: root.path) else {
             throw CocoaError(.fileReadNoPermission)
         }
+    }
+}
+
+private extension UInt64 {
+    func saturatingAdd(_ other: UInt64) -> UInt64 {
+        let (result, overflow) = addingReportingOverflow(other)
+        return overflow ? UInt64.max : result
+    }
+}
+
+private final class ParallelLoadResults: @unchecked Sendable {
+    private let lock = NSLock()
+    private var loadedFiles: [[CodexUsageEvent]]
+    private var firstError: Error?
+
+    init(count: Int) {
+        self.loadedFiles = Array(repeating: [CodexUsageEvent](), count: count)
+    }
+
+    var shouldStop: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return firstError != nil
+    }
+
+    func set(events: [CodexUsageEvent], at index: Int) {
+        lock.lock()
+        loadedFiles[index] = events
+        lock.unlock()
+    }
+
+    func set(error: Error) {
+        lock.lock()
+        if firstError == nil {
+            firstError = error
+        }
+        lock.unlock()
+    }
+
+    func flattened() throws -> [CodexUsageEvent] {
+        lock.lock()
+        defer { lock.unlock() }
+        if let firstError {
+            throw firstError
+        }
+        return loadedFiles.flatMap { $0 }
     }
 }

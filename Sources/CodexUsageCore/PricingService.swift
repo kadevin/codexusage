@@ -5,7 +5,7 @@ public struct PricingService: Sendable {
         let inputPerMillion: Decimal
         let cachedInputPerMillion: Decimal
         let outputPerMillion: Decimal
-        let fastMultiplier: Decimal?
+        let fastMultiplier: Decimal
     }
 
     private let speedMode: SpeedMode
@@ -30,15 +30,14 @@ public struct PricingService: Sendable {
 
             hasCost = true
             let multiplier = multiplier(for: price)
-            if multiplier == Decimal(2), price.fastMultiplier == nil, effectiveFastMode {
+            if effectiveFastMode, price.fastMultiplier == 1 {
                 usedFallback = true
             }
 
             let uncachedInput = max(event.inputTokens - event.cachedInputTokens, 0)
-            let billableOutput = event.outputTokens + event.reasoningTokens
             total += Decimal(uncachedInput) * price.inputPerMillion / 1_000_000 * multiplier
             total += Decimal(event.cachedInputTokens) * price.cachedInputPerMillion / 1_000_000 * multiplier
-            total += Decimal(billableOutput) * price.outputPerMillion / 1_000_000 * multiplier
+            total += Decimal(event.outputTokens) * price.outputPerMillion / 1_000_000 * multiplier
         }
 
         return CostEstimate(
@@ -58,29 +57,91 @@ public struct PricingService: Sendable {
 
     private func multiplier(for price: ModelPrice) -> Decimal {
         guard effectiveFastMode else { return 1 }
-        return price.fastMultiplier ?? 2
+        return price.fastMultiplier == 1 ? 2 : price.fastMultiplier
     }
 
     private static func price(for model: String) -> ModelPrice? {
         let normalized = model.lowercased()
-        if normalized.contains("gpt-5.2-codex") || normalized == "gpt-5" {
-            return ModelPrice(
+        if let exact = priceTable.first(where: { $0.model == normalized }) {
+            return exact.price
+        }
+
+        return priceTable
+            .filter { normalized.contains($0.model) || $0.model.contains(normalized) }
+            .max { lhs, rhs in
+                if lhs.model.count == rhs.model.count {
+                    return lhs.model > rhs.model
+                }
+                return lhs.model.count < rhs.model.count
+            }?
+            .price
+    }
+
+    private static let priceTable: [(model: String, price: ModelPrice)] = [
+        (
+            "gpt-5.4-mini",
+            ModelPrice(
+                inputPerMillion: Decimal(string: "0.75")!,
+                cachedInputPerMillion: Decimal(string: "0.075")!,
+                outputPerMillion: Decimal(string: "4.50")!,
+                fastMultiplier: 1
+            )
+        ),
+        (
+            "gpt-5.4-nano",
+            ModelPrice(
+                inputPerMillion: Decimal(string: "0.20")!,
+                cachedInputPerMillion: Decimal(string: "0.020")!,
+                outputPerMillion: Decimal(string: "1.25")!,
+                fastMultiplier: 1
+            )
+        ),
+        (
+            "gpt-5.4",
+            ModelPrice(
                 inputPerMillion: Decimal(string: "2.50")!,
                 cachedInputPerMillion: Decimal(string: "0.25")!,
-                outputPerMillion: Decimal(string: "10.00")!,
-                fastMultiplier: nil
+                outputPerMillion: Decimal(string: "15.00")!,
+                fastMultiplier: 2
             )
-        }
-        if normalized.contains("gpt-5.3-codex") {
-            return ModelPrice(
-                inputPerMillion: Decimal(string: "3.00")!,
-                cachedInputPerMillion: Decimal(string: "0.30")!,
-                outputPerMillion: Decimal(string: "12.00")!,
-                fastMultiplier: nil
+        ),
+        (
+            "gpt-5.3-codex",
+            ModelPrice(
+                inputPerMillion: Decimal(string: "1.75")!,
+                cachedInputPerMillion: Decimal(string: "0.175")!,
+                outputPerMillion: Decimal(string: "14.00")!,
+                fastMultiplier: 2
             )
-        }
-        return nil
-    }
+        ),
+        (
+            "gpt-5.2-codex",
+            ModelPrice(
+                inputPerMillion: Decimal(string: "1.75")!,
+                cachedInputPerMillion: Decimal(string: "0.175")!,
+                outputPerMillion: Decimal(string: "14.00")!,
+                fastMultiplier: 1
+            )
+        ),
+        (
+            "gpt-5.2",
+            ModelPrice(
+                inputPerMillion: Decimal(string: "1.75")!,
+                cachedInputPerMillion: Decimal(string: "0.175")!,
+                outputPerMillion: Decimal(string: "14.00")!,
+                fastMultiplier: 1
+            )
+        ),
+        (
+            "gpt-5",
+            ModelPrice(
+                inputPerMillion: Decimal(string: "1.75")!,
+                cachedInputPerMillion: Decimal(string: "0.175")!,
+                outputPerMillion: Decimal(string: "14.00")!,
+                fastMultiplier: 1
+            )
+        )
+    ]
 }
 
 extension Decimal {

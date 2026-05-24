@@ -8,70 +8,122 @@ public struct CodexUsageParser: Sendable {
         sessionsRoot: URL,
         fallbackModifiedDate: Date
     ) throws -> [CodexUsageEvent] {
-        let data = try Data(contentsOf: fileURL)
-        let text = String(decoding: data, as: UTF8.self)
         let sessionId = Self.sessionId(for: fileURL, sessionsRoot: sessionsRoot)
         var events: [CodexUsageEvent] = []
         var currentModel: String?
         var previousTotalUsage: RawUsage?
+        let handle = try FileHandle(forReadingFrom: fileURL)
+        defer {
+            try? handle.close()
+        }
+        var buffer = Data()
 
-        for rawLine in text.split(separator: "\n", omittingEmptySubsequences: true) {
-            guard
-                let lineData = String(rawLine).data(using: .utf8),
-                let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any]
-            else {
-                continue
+        while true {
+            try Task.checkCancellation()
+            let chunk = try handle.read(upToCount: 128 * 1024) ?? Data()
+            if chunk.isEmpty {
+                break
             }
+            buffer.append(chunk)
 
-            if object["type"] as? String == "turn_context" {
-                if let payload = object["payload"] as? [String: Any], payload.keys.contains("model") {
-                    currentModel = Self.normalizedModel(payload["model"])
-                }
-                continue
+            while let newline = buffer.firstRange(of: Self.newlineData) {
+                let line = buffer.subdata(in: buffer.startIndex..<newline.lowerBound)
+                Self.parseLine(
+                    line,
+                    sessionId: sessionId,
+                    fileURL: fileURL,
+                    fallbackModifiedDate: fallbackModifiedDate,
+                    events: &events,
+                    currentModel: &currentModel,
+                    previousTotalUsage: &previousTotalUsage
+                )
+                buffer.removeSubrange(buffer.startIndex..<newline.upperBound)
             }
+        }
 
-            guard
-                object["type"] as? String == "event_msg",
-                let payload = object["payload"] as? [String: Any],
-                payload["type"] as? String == "token_count"
-            else {
-                continue
-            }
-
-            let timestamp = Self.parseTimestamp(object["timestamp"]) ?? fallbackModifiedDate
-            let info = payload["info"] as? [String: Any]
-            let lastUsage = (info?["last_token_usage"] as? [String: Any]).flatMap(RawUsage.init)
-            let totalUsage = (info?["total_token_usage"] as? [String: Any]).flatMap(RawUsage.init)
-            let usage = lastUsage ?? totalUsage.map { $0.subtracting(previousTotalUsage) }
-
-            if let totalUsage {
-                previousTotalUsage = totalUsage
-            }
-
-            guard let usage, usage.hasTokens else {
-                continue
-            }
-
-            let payloadModel = Self.normalizedModel(payload["model"])
-            let infoModel = Self.normalizedModel(info?["model"])
-            let model = payloadModel ?? infoModel ?? currentModel ?? "gpt-5"
-            let isFallbackModel = payloadModel == nil && infoModel == nil && currentModel == nil
-
-            events.append(CodexUsageEvent(
+        if !buffer.isEmpty {
+            Self.parseLine(
+                buffer,
                 sessionId: sessionId,
-                timestamp: timestamp,
-                model: model,
-                inputTokens: usage.inputTokens,
-                cachedInputTokens: usage.cachedInputTokens,
-                outputTokens: usage.outputTokens,
-                reasoningTokens: usage.reasoningTokens,
-                totalTokens: usage.totalTokens,
-                sourceFile: fileURL,
-                isFallbackModel: isFallbackModel
-            ))
+                fileURL: fileURL,
+                fallbackModifiedDate: fallbackModifiedDate,
+                events: &events,
+                currentModel: &currentModel,
+                previousTotalUsage: &previousTotalUsage
+            )
         }
 
         return events
+    }
+
+    private static func parseLine(
+        _ lineData: Data,
+        sessionId: String,
+        fileURL: URL,
+        fallbackModifiedDate: Date,
+        events: inout [CodexUsageEvent],
+        currentModel: inout String?,
+        previousTotalUsage: inout RawUsage?
+    ) {
+        guard
+            lineMightContainUsage(lineData),
+            let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any]
+        else {
+            return
+        }
+
+        if object["type"] as? String == "turn_context" {
+            if let payload = object["payload"] as? [String: Any], payload.keys.contains("model") {
+                currentModel = Self.normalizedModel(payload["model"])
+            }
+            return
+        }
+
+        guard
+            object["type"] as? String == "event_msg",
+            let payload = object["payload"] as? [String: Any],
+            payload["type"] as? String == "token_count"
+        else {
+            return
+        }
+
+        let timestamp = Self.parseTimestamp(object["timestamp"]) ?? fallbackModifiedDate
+        let info = payload["info"] as? [String: Any]
+        let lastUsage = (info?["last_token_usage"] as? [String: Any]).flatMap(RawUsage.init)
+        let totalUsage = (info?["total_token_usage"] as? [String: Any]).flatMap(RawUsage.init)
+        let usage = lastUsage ?? totalUsage.map { $0.subtracting(previousTotalUsage) }
+
+        if let totalUsage {
+            previousTotalUsage = totalUsage
+        }
+
+        guard let usage, usage.hasTokens else {
+            return
+        }
+
+        let payloadModel = Self.normalizedModel(payload["model"])
+        let infoModel = Self.normalizedModel(info?["model"])
+        let model = payloadModel ?? infoModel ?? currentModel ?? "gpt-5"
+        let isFallbackModel = payloadModel == nil && infoModel == nil && currentModel == nil
+
+        events.append(CodexUsageEvent(
+            sessionId: sessionId,
+            timestamp: timestamp,
+            model: model,
+            inputTokens: usage.inputTokens,
+            cachedInputTokens: usage.cachedInputTokens,
+            outputTokens: usage.outputTokens,
+            reasoningTokens: usage.reasoningTokens,
+            totalTokens: usage.totalTokens,
+            sourceFile: fileURL,
+            isFallbackModel: isFallbackModel
+        ))
+    }
+
+    private static func lineMightContainUsage(_ lineData: Data) -> Bool {
+        relevantMarkers.contains { marker in
+            lineData.range(of: marker) != nil
+        }
     }
 
     private static func normalizedModel(_ value: Any?) -> String? {
@@ -116,6 +168,15 @@ public struct CodexUsageParser: Sendable {
             : [.withInternetDateTime]
         return formatter.date(from: string)
     }
+
+    private static let newlineData = Data([0x0A])
+    private static let relevantMarkers = [
+        Data(#""turn_context""#.utf8),
+        Data(#""token_count""#.utf8),
+        Data(#""usage""#.utf8),
+        Data(#""input_tokens""#.utf8),
+        Data(#""prompt_tokens""#.utf8)
+    ]
 }
 
 private struct RawUsage: Equatable {
