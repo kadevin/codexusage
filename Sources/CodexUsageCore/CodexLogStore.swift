@@ -25,6 +25,7 @@ public struct CodexLogStore: Sendable {
     }
 
     public func discoverJSONLFiles(root: URL) throws -> [URL] {
+        try validateReadableDirectory(root)
         let scanRoot = sessionsDirectoryRoot(for: root)
 
         guard let enumerator = FileManager.default.enumerator(
@@ -76,5 +77,16 @@ public struct CodexLogStore: Sendable {
         return FileManager.default.fileExists(atPath: sessionsRoot.path, isDirectory: &isDirectory) && isDirectory.boolValue
             ? sessionsRoot
             : root
+    }
+
+    private func validateReadableDirectory(_ root: URL) throws {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw CocoaError(.fileReadNoSuchFile)
+        }
+
+        guard FileManager.default.isReadableFile(atPath: root.path) else {
+            throw CocoaError(.fileReadNoPermission)
+        }
     }
 }

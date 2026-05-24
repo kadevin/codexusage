@@ -49,6 +49,21 @@ final class CodexLogStoreTests: XCTestCase {
         )
     }
 
+    func testMissingRootThrowsWhenDiscoveringJsonlFiles() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+
+        XCTAssertThrowsError(try CodexLogStore().discoverJSONLFiles(root: root))
+    }
+
+    func testReadableEmptyRootReturnsNoJsonlFiles() throws {
+        let root = try makeTemporaryDirectory()
+
+        let files = try CodexLogStore().discoverJSONLFiles(root: root)
+
+        XCTAssertEqual(files, [])
+    }
+
     func testLoadEventsUsesSessionsDirectoryAsParserRoot() throws {
         let root = try makeTemporaryDirectory()
         let project = root.appendingPathComponent("sessions/project-a", isDirectory: true)
