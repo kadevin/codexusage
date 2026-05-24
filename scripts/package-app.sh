@@ -34,4 +34,5 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+plutil -lint "$APP/Contents/Info.plist" >/dev/null
 echo "$APP"

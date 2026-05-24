@@ -5,6 +5,7 @@ CodexUsage is a local macOS menu bar app for viewing Codex token usage and estim
 ## Features
 
 - Reads only local Codex logs from `CODEX_HOME` or `~/.codex`
+- Lets you choose a custom Codex path in Preferences
 - Shows today's usage and current-hour usage
 - Estimates known model costs locally
 - Supports standard, fast, and auto speed pricing modes
