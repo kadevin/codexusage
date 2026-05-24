@@ -107,12 +107,11 @@ public struct UsageSummary: Equatable, Sendable {
 }
 
 public struct HourBucket: Equatable, Identifiable, Sendable {
-    public let id: Date
+    public var id: Date { start }
     public let start: Date
     public let summary: UsageSummary
 
-    public init(id: Date, start: Date, summary: UsageSummary) {
-        self.id = id
+    public init(start: Date, summary: UsageSummary) {
         self.start = start
         self.summary = summary
     }

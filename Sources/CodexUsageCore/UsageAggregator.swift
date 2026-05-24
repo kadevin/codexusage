@@ -10,16 +10,20 @@ public struct UsageAggregator: Sendable {
     }
 
     public func snapshot(events: [CodexUsageEvent], now: Date) -> UsageSnapshot {
+        let visibleEvents = events.filter { $0.timestamp <= now }
         let dayStart = calendar.startOfDay(for: now)
         let hourStart = calendar.dateInterval(of: .hour, for: now)?.start ?? now
-        let todayEvents = events.filter { $0.timestamp >= dayStart && $0.timestamp <= now }
-        let currentHourEvents = events.filter { $0.timestamp >= hourStart && $0.timestamp <= now }
+        let todayEvents = visibleEvents.filter { $0.timestamp >= dayStart }
+        let currentHourEvents = visibleEvents.filter { $0.timestamp >= hourStart }
         let breakdown = Dictionary(grouping: todayEvents, by: \.model)
             .map { model, events in
                 ModelBreakdown(model: model, summary: summary(events))
             }
             .sorted { lhs, rhs in
-                lhs.summary.totals.totalTokens > rhs.summary.totals.totalTokens
+                if lhs.summary.totals.totalTokens == rhs.summary.totals.totalTokens {
+                    return lhs.model < rhs.model
+                }
+                return lhs.summary.totals.totalTokens > rhs.summary.totals.totalTokens
             }
         let warnings = todayEvents.contains(where: \.isFallbackModel) ? ["fallback-model"] : []
 
@@ -27,7 +31,7 @@ public struct UsageAggregator: Sendable {
             generatedAt: now,
             today: summary(todayEvents),
             currentHour: summary(currentHourEvents),
-            recentHours: recentHours(events: events, now: now),
+            recentHours: recentHours(events: visibleEvents, now: now),
             modelBreakdown: breakdown,
             warnings: warnings
         )
@@ -45,7 +49,7 @@ public struct UsageAggregator: Sendable {
             }
 
             let bucketEvents = events.filter { $0.timestamp >= start && $0.timestamp < end }
-            return HourBucket(id: start, start: start, summary: summary(bucketEvents))
+            return HourBucket(start: start, summary: summary(bucketEvents))
         }
     }
 
