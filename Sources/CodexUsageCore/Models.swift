@@ -57,6 +57,20 @@ public struct TokenTotals: Equatable, Sendable {
     public var reasoningTokens: Int
     public var totalTokens: Int
 
+    public init(
+        inputTokens: Int,
+        cachedInputTokens: Int,
+        outputTokens: Int,
+        reasoningTokens: Int,
+        totalTokens: Int
+    ) {
+        self.inputTokens = inputTokens
+        self.cachedInputTokens = cachedInputTokens
+        self.outputTokens = outputTokens
+        self.reasoningTokens = reasoningTokens
+        self.totalTokens = totalTokens
+    }
+
     public static let zero = TokenTotals(
         inputTokens: 0,
         cachedInputTokens: 0,
@@ -70,9 +84,24 @@ public struct CostEstimate: Equatable, Sendable {
     public let usd: Decimal?
     public let hasUnknownPricing: Bool
     public let usedFallbackMultiplier: Bool
+
+    public init(
+        usd: Decimal?,
+        hasUnknownPricing: Bool,
+        usedFallbackMultiplier: Bool
+    ) {
+        self.usd = usd
+        self.hasUnknownPricing = hasUnknownPricing
+        self.usedFallbackMultiplier = usedFallbackMultiplier
+    }
 }
 
 public struct UsageSummary: Equatable, Sendable {
     public let totals: TokenTotals
     public let cost: CostEstimate
+
+    public init(totals: TokenTotals, cost: CostEstimate) {
+        self.totals = totals
+        self.cost = cost
+    }
 }
