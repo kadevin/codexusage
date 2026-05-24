@@ -1,0 +1,3 @@
+{"timestamp":"2026-05-24T00:00:00.000Z","type":"turn_context","payload":{"model":"gpt-5.2-codex"}}
+{"timestamp":"2026-05-24T00:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1000,"cached_input_tokens":200,"output_tokens":100,"reasoning_output_tokens":25,"total_tokens":1125},"total_token_usage":{"input_tokens":1000,"cached_input_tokens":200,"output_tokens":100,"reasoning_output_tokens":25,"total_tokens":1125}}}}
+{"timestamp":"2026-05-24T01:00:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1500,"cached_input_tokens":300,"output_tokens":140,"reasoning_output_tokens":35,"total_tokens":1675}}}}
