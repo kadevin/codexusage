@@ -65,4 +65,79 @@ final class PricingServiceTests: XCTestCase {
         XCTAssertEqual(estimate.usd, Decimal(string: "5.00"))
         XCTAssertEqual(estimate.usedFallbackMultiplier, true)
     }
+
+    func testCachedInputUsesCachedInputPricing() {
+        let service = PricingService(speedMode: .standard, autoDetectedFast: false)
+        let estimate = service.estimate(
+            events: [
+                CodexUsageEvent(
+                    sessionId: "s1",
+                    timestamp: Date(timeIntervalSince1970: 0),
+                    model: "gpt-5.2-codex",
+                    inputTokens: 1_000_000,
+                    cachedInputTokens: 400_000,
+                    outputTokens: 0,
+                    reasoningTokens: 0,
+                    totalTokens: 1_000_000,
+                    sourceFile: URL(fileURLWithPath: "/tmp/a.jsonl")
+                )
+            ]
+        )
+        XCTAssertEqual(estimate.usd, Decimal(string: "1.60"))
+        XCTAssertEqual(estimate.hasUnknownPricing, false)
+        XCTAssertEqual(estimate.usedFallbackMultiplier, false)
+    }
+
+    func testAutoModeUsesFallbackMultiplierWhenFastIsDetected() {
+        let service = PricingService(speedMode: .auto, autoDetectedFast: true)
+        let estimate = service.estimate(
+            events: [
+                CodexUsageEvent(
+                    sessionId: "s1",
+                    timestamp: Date(timeIntervalSince1970: 0),
+                    model: "gpt-5.2-codex",
+                    inputTokens: 1_000_000,
+                    cachedInputTokens: 0,
+                    outputTokens: 0,
+                    reasoningTokens: 0,
+                    totalTokens: 1_000_000,
+                    sourceFile: URL(fileURLWithPath: "/tmp/a.jsonl")
+                )
+            ]
+        )
+        XCTAssertEqual(estimate.usd, Decimal(string: "5.00"))
+        XCTAssertEqual(estimate.usedFallbackMultiplier, true)
+    }
+
+    func testMixedKnownAndUnknownEventsReturnKnownCostAndUnknownFlag() {
+        let service = PricingService(speedMode: .standard, autoDetectedFast: false)
+        let estimate = service.estimate(
+            events: [
+                CodexUsageEvent(
+                    sessionId: "s1",
+                    timestamp: Date(timeIntervalSince1970: 0),
+                    model: "gpt-5.2-codex",
+                    inputTokens: 1_000_000,
+                    cachedInputTokens: 0,
+                    outputTokens: 0,
+                    reasoningTokens: 0,
+                    totalTokens: 1_000_000,
+                    sourceFile: URL(fileURLWithPath: "/tmp/a.jsonl")
+                ),
+                CodexUsageEvent(
+                    sessionId: "s1",
+                    timestamp: Date(timeIntervalSince1970: 0),
+                    model: "unknown-model",
+                    inputTokens: 1_000_000,
+                    cachedInputTokens: 0,
+                    outputTokens: 0,
+                    reasoningTokens: 0,
+                    totalTokens: 1_000_000,
+                    sourceFile: URL(fileURLWithPath: "/tmp/b.jsonl")
+                )
+            ]
+        )
+        XCTAssertEqual(estimate.usd, Decimal(string: "2.50"))
+        XCTAssertEqual(estimate.hasUnknownPricing, true)
+    }
 }

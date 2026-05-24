@@ -1,7 +1,7 @@
 import Foundation
 
 public struct PricingService: Sendable {
-    public struct ModelPrice: Sendable {
+    private struct ModelPrice: Sendable {
         let inputPerMillion: Decimal
         let cachedInputPerMillion: Decimal
         let outputPerMillion: Decimal
