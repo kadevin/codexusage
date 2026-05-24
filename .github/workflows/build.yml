@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - "v*"
   pull_request:
     branches:
       - main
@@ -51,3 +53,59 @@ jobs:
           path: artifacts/CodexUsage-macOS.zip
           if-no-files-found: error
           retention-days: 30
+
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+
+    steps:
+      - name: Download packaged app
+        uses: actions/download-artifact@v7
+        with:
+          name: CodexUsage-macOS
+          path: release-artifacts
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+          HEAD_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          sha256sum release-artifacts/CodexUsage-macOS.zip > release-artifacts/CodexUsage-macOS.zip.sha256
+          cat > release-notes.md <<EOF
+          CodexUsage macOS menu bar app release.
+
+          CodexUsage macOS 菜单栏应用发布版本。
+
+          Download / 下载:
+          - CodexUsage-macOS.zip
+          - CodexUsage-macOS.zip.sha256
+
+          Build / 构建:
+          - Tag: ${TAG_NAME}
+          - Commit: ${HEAD_SHA}
+          - GitHub Actions: ${RUN_URL}
+          EOF
+
+          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            gh release edit "${TAG_NAME}" \
+              --title "CodexUsage ${TAG_NAME}" \
+              --notes-file release-notes.md
+            gh release upload "${TAG_NAME}" \
+              "release-artifacts/CodexUsage-macOS.zip#CodexUsage macOS app" \
+              "release-artifacts/CodexUsage-macOS.zip.sha256#SHA-256 checksum" \
+              --clobber
+          else
+            gh release create "${TAG_NAME}" \
+              "release-artifacts/CodexUsage-macOS.zip#CodexUsage macOS app" \
+              "release-artifacts/CodexUsage-macOS.zip.sha256#SHA-256 checksum" \
+              --title "CodexUsage ${TAG_NAME}" \
+              --notes-file release-notes.md
+          fi
