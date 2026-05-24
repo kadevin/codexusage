@@ -1,39 +1,33 @@
 import Foundation
 
-public struct CodexLogStore: @unchecked Sendable {
+public struct CodexLogStore: Sendable {
     private let parser: CodexUsageParser
-    private let fileManager: FileManager
 
-    public init(
-        parser: CodexUsageParser = CodexUsageParser(),
-        fileManager: FileManager = .default
-    ) {
+    public init(parser: CodexUsageParser = CodexUsageParser()) {
         self.parser = parser
-        self.fileManager = fileManager
     }
 
     public func loadEvents(root: URL) throws -> [CodexUsageEvent] {
         let files = try discoverJSONLFiles(root: root)
+        let sessionsRoot = sessionsDirectoryRoot(for: root).resolvingSymlinksInPath()
+
         return try files.flatMap { file in
-            let modified = try? fileManager
+            let resolvedFile = file.resolvingSymlinksInPath()
+            let modified = try? FileManager.default
                 .attributesOfItem(atPath: file.path)[.modificationDate] as? Date
 
             return try parser.parseFile(
-                file,
-                sessionsRoot: root,
+                resolvedFile,
+                sessionsRoot: sessionsRoot,
                 fallbackModifiedDate: modified ?? Date()
             )
         }
     }
 
     public func discoverJSONLFiles(root: URL) throws -> [URL] {
-        let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
-        var isDirectory: ObjCBool = false
-        let scanRoot = fileManager.fileExists(atPath: sessionsRoot.path, isDirectory: &isDirectory) && isDirectory.boolValue
-            ? sessionsRoot
-            : root
+        let scanRoot = sessionsDirectoryRoot(for: root)
 
-        guard let enumerator = fileManager.enumerator(
+        guard let enumerator = FileManager.default.enumerator(
             at: scanRoot,
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
@@ -59,7 +53,28 @@ public struct CodexLogStore: @unchecked Sendable {
             return false
         }
 
-        return contents.contains(#"service_tier = "priority""#)
-            || contents.contains(#"service_tier = "fast""#)
+        return contents.split(separator: "\n").contains { rawLine in
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.hasPrefix("#") else {
+                return false
+            }
+
+            let parts = line.split(separator: "=", maxSplits: 1).map {
+                String($0).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            guard parts.count == 2, parts[0] == "service_tier" else {
+                return false
+            }
+
+            return parts[1] == #""priority""# || parts[1] == #""fast""#
+        }
+    }
+
+    private func sessionsDirectoryRoot(for root: URL) -> URL {
+        let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: sessionsRoot.path, isDirectory: &isDirectory) && isDirectory.boolValue
+            ? sessionsRoot
+            : root
     }
 }
