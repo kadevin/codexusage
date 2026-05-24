@@ -32,6 +32,8 @@ public struct AppStrings: Equatable, Sendable {
     public var unreadablePath: String { text(en: "Path is not readable", zh: "路径不可读取") }
     public var unknownPricing: String { text(en: "Unknown pricing", zh: "未知价格") }
     public var estimated: String { text(en: "Estimated", zh: "估算") }
+    public var partialPricing: String { text(en: "Partial", zh: "部分") }
+    public var fallbackPricing: String { text(en: "Fallback", zh: "回退") }
     public var lastUpdated: String { text(en: "Updated", zh: "更新于") }
 
     public func intervalLabel(_ interval: RefreshInterval) -> String {

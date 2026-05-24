@@ -54,6 +54,7 @@ final class AppModel {
         self.speedMode = savedSpeed.flatMap(SpeedMode.init(rawValue:)) ?? .auto
         self.pathOverride = UserDefaults.standard.string(forKey: Self.pathOverrideKey) ?? ""
         self.snapshot = Self.emptySnapshot()
+        refresh()
     }
 
     func refresh() {

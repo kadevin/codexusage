@@ -88,6 +88,28 @@ final class PricingServiceTests: XCTestCase {
         XCTAssertEqual(estimate.usedFallbackMultiplier, false)
     }
 
+    func testReasoningTokensAreBilledAsOutput() {
+        let service = PricingService(speedMode: .standard, autoDetectedFast: false)
+        let estimate = service.estimate(
+            events: [
+                CodexUsageEvent(
+                    sessionId: "s1",
+                    timestamp: Date(timeIntervalSince1970: 0),
+                    model: "gpt-5.2-codex",
+                    inputTokens: 0,
+                    cachedInputTokens: 0,
+                    outputTokens: 100_000,
+                    reasoningTokens: 200_000,
+                    totalTokens: 300_000,
+                    sourceFile: URL(fileURLWithPath: "/tmp/a.jsonl")
+                )
+            ]
+        )
+
+        XCTAssertEqual(estimate.usd, Decimal(string: "3.00"))
+        XCTAssertEqual(estimate.hasUnknownPricing, false)
+    }
+
     func testAutoModeUsesFallbackMultiplierWhenFastIsDetected() {
         let service = PricingService(speedMode: .auto, autoDetectedFast: true)
         let estimate = service.estimate(

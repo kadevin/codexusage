@@ -35,9 +35,10 @@ public struct PricingService: Sendable {
             }
 
             let uncachedInput = max(event.inputTokens - event.cachedInputTokens, 0)
+            let billableOutput = event.outputTokens + event.reasoningTokens
             total += Decimal(uncachedInput) * price.inputPerMillion / 1_000_000 * multiplier
             total += Decimal(event.cachedInputTokens) * price.cachedInputPerMillion / 1_000_000 * multiplier
-            total += Decimal(event.outputTokens) * price.outputPerMillion / 1_000_000 * multiplier
+            total += Decimal(billableOutput) * price.outputPerMillion / 1_000_000 * multiplier
         }
 
         return CostEstimate(

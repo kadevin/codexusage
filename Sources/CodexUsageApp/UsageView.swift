@@ -7,8 +7,13 @@ struct UsageView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text(model.strings.codexUsageTitle)
-                    .font(.headline)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.strings.codexUsageTitle)
+                        .font(.headline)
+                    Text("\(model.strings.lastUpdated): \(formatRefreshTime(model.snapshot.generatedAt))")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button {
                     model.refresh()
@@ -62,7 +67,7 @@ struct UsageView: View {
                 .font(.system(size: 22, weight: .semibold, design: .rounded))
             Text(formatCost(summary.cost))
                 .font(.caption)
-                .foregroundStyle(summary.cost.hasUnknownPricing ? .orange : .secondary)
+                .foregroundStyle(costNeedsDisclosure(summary.cost) ? .orange : .secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
@@ -83,6 +88,31 @@ struct UsageView: View {
         }
 
         let value = NSDecimalNumber(decimal: usd).doubleValue
-        return "$\(value.formatted(.number.precision(.fractionLength(2))))"
+        let base = "$\(value.formatted(.number.precision(.fractionLength(2))))"
+        let suffixes = costDisclosureSuffixes(cost)
+        guard !suffixes.isEmpty else {
+            return base
+        }
+
+        return "\(base) · \(suffixes.joined(separator: "/"))"
+    }
+
+    private func costNeedsDisclosure(_ cost: CostEstimate) -> Bool {
+        cost.hasUnknownPricing || cost.usedFallbackMultiplier
+    }
+
+    private func costDisclosureSuffixes(_ cost: CostEstimate) -> [String] {
+        var suffixes: [String] = []
+        if cost.hasUnknownPricing {
+            suffixes.append(model.strings.partialPricing)
+        }
+        if cost.usedFallbackMultiplier {
+            suffixes.append(model.strings.fallbackPricing)
+        }
+        return suffixes
+    }
+
+    private func formatRefreshTime(_ date: Date) -> String {
+        date.formatted(date: .omitted, time: .shortened)
     }
 }

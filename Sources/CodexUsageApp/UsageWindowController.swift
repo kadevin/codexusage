@@ -4,6 +4,7 @@ import SwiftUI
 @MainActor
 final class UsageWindowController {
     private let panel: NSPanel
+    private static let frameAutosaveName = "CodexUsageUsagePanelFrame"
 
     init(model: AppModel) {
         let panel = NSPanel(
@@ -17,7 +18,10 @@ final class UsageWindowController {
         panel.level = model.isAlwaysOnTop ? .floating : .normal
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentViewController = NSHostingController(rootView: UsageView(model: model))
-        panel.center()
+        if !panel.setFrameUsingName(Self.frameAutosaveName) {
+            panel.center()
+        }
+        panel.setFrameAutosaveName(Self.frameAutosaveName)
 
         self.panel = panel
         model.onAlwaysOnTopChanged = { [weak self] enabled in
