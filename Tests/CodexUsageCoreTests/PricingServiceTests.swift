@@ -45,6 +45,15 @@ final class PricingServiceTests: XCTestCase {
         XCTAssertEqual(estimate.hasUnknownPricing, true)
     }
 
+    func testEmptyEventsEstimateZeroCost() {
+        let service = PricingService(speedMode: .standard, autoDetectedFast: false)
+        let estimate = service.estimate(events: [])
+
+        XCTAssertEqual(estimate.usd, Decimal.zero)
+        XCTAssertEqual(estimate.hasUnknownPricing, false)
+        XCTAssertEqual(estimate.usedFallbackMultiplier, false)
+    }
+
     func testFastModeUsesTwoTimesFallbackWhenModelHasNoSpecificMultiplier() {
         let service = PricingService(speedMode: .fast, autoDetectedFast: false)
         let estimate = service.estimate(

@@ -6,9 +6,15 @@ struct UsageView: View {
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("CodexUsage.showTrend") private var showsTrend = false
     @State private var trendMode: TrendMode = .hours
+    let onContentHeightChanged: ((CGFloat) -> Void)?
+
+    init(model: AppModel, onContentHeightChanged: ((CGFloat) -> Void)? = nil) {
+        self.model = model
+        self.onContentHeightChanged = onContentHeightChanged
+    }
 
     var body: some View {
-        ScrollView {
+        ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
@@ -66,6 +72,12 @@ struct UsageView: View {
                     .foregroundStyle(.secondary)
             }
             .padding(14)
+            .fixedSize(horizontal: false, vertical: true)
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(key: UsageContentHeightKey.self, value: proxy.size.height)
+                }
+            )
         }
         .frame(width: 360)
         .background(panelBackground)
@@ -74,8 +86,11 @@ struct UsageView: View {
             panelShape
                 .stroke(panelBorderColor, lineWidth: 1)
         )
-        .shadow(color: panelShadowColor, radius: 22, x: 0, y: 12)
-        .padding(10)
+        .onPreferenceChange(UsageContentHeightKey.self) { height in
+            DispatchQueue.main.async {
+                onContentHeightChanged?(height)
+            }
+        }
     }
 
     private func metric(title: String, summary: UsageSummary) -> some View {
@@ -160,7 +175,7 @@ struct UsageView: View {
     private func trendTable(rows: [TrendRow]) -> some View {
         VStack(spacing: 0) {
             trendHeader
-            ScrollView {
+            ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(spacing: 0) {
                     let maxTokens = rows.map(\.summary.totals.totalTokens).max() ?? 0
                     ForEach(rows) { row in
@@ -169,7 +184,6 @@ struct UsageView: View {
                 }
             }
             .frame(height: 154)
-            .scrollIndicators(.hidden)
         }
         .overlay(
             RoundedRectangle(cornerRadius: 8)
@@ -289,10 +303,6 @@ struct UsageView: View {
         colorScheme == .dark ? Color.white.opacity(0.18) : Color.black.opacity(0.10)
     }
 
-    private var panelShadowColor: Color {
-        colorScheme == .dark ? Color.black.opacity(0.40) : Color.black.opacity(0.18)
-    }
-
     private func formatCost(_ cost: CostEstimate) -> String {
         guard let usd = cost.usd else {
             return model.strings.unknownPricing
@@ -337,4 +347,12 @@ private struct TrendRow: Identifiable {
     let id: Date
     let period: String
     let summary: UsageSummary
+}
+
+private struct UsageContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
 }

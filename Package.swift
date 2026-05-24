@@ -23,6 +23,10 @@ let package = Package(
             resources: [
                 .copy("Fixtures")
             ]
+        ),
+        .testTarget(
+            name: "CodexUsageAppTests",
+            dependencies: ["CodexUsageApp", "CodexUsageCore"]
         )
     ]
 )

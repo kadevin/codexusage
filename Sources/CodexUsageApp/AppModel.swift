@@ -58,7 +58,9 @@ final class AppModel {
 
         let savedSpeed = UserDefaults.standard.string(forKey: Self.speedModeKey)
         self.speedMode = savedSpeed.flatMap(SpeedMode.init(rawValue:)) ?? .auto
-        self.pathOverride = UserDefaults.standard.string(forKey: Self.pathOverrideKey) ?? ""
+        self.pathOverride = Self.initialPathOverride(
+            savedPath: UserDefaults.standard.string(forKey: Self.pathOverrideKey)
+        )
         self.panelOpacity = UserDefaults.standard.object(forKey: Self.panelOpacityKey) as? Double ?? 0.92
         self.snapshot = Self.emptySnapshot()
         refresh()
@@ -114,6 +116,10 @@ final class AppModel {
     deinit {
         refreshTask?.cancel()
         timerTask?.cancel()
+    }
+
+    private static func initialPathOverride(savedPath: String?) -> String {
+        CodexPathResolver().resolve(userOverride: savedPath).path
     }
 
     private nonisolated static func makeRefreshResult(

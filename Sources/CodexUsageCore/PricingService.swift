@@ -17,6 +17,14 @@ public struct PricingService: Sendable {
     }
 
     public func estimate(events: [CodexUsageEvent]) -> CostEstimate {
+        guard !events.isEmpty else {
+            return CostEstimate(
+                usd: Decimal.zero,
+                hasUnknownPricing: false,
+                usedFallbackMultiplier: false
+            )
+        }
+
         var total = Decimal.zero
         var hasCost = false
         var hasUnknown = false
