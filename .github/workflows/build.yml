@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Show Swift version
         run: swift --version
@@ -45,7 +45,7 @@ jobs:
           ditto -c -k --keepParent build/CodexUsage.app artifacts/CodexUsage-macOS.zip
 
       - name: Upload app artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: CodexUsage-macOS
           path: artifacts/CodexUsage-macOS.zip
