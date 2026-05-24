@@ -65,6 +65,13 @@ Controls:
 - Speed pricing picker: auto, standard, fast.
 - Codex path selector with default `${CODEX_HOME}` or `~/.codex`.
 
+Localization:
+
+- Support English and Simplified Chinese UI text in the first release.
+- Detect the system language automatically at launch.
+- Use Chinese when the preferred system language starts with `zh`; otherwise use English.
+- Keep all user-facing strings behind a localization layer so parser, pricing, and aggregation code do not contain UI copy.
+
 ## Data Source
 
 Default source resolution:
@@ -175,6 +182,7 @@ Proposed modules:
 - `CodexUsageApp`: SwiftUI app entry, menu bar scene, window setup.
 - `UsageWindowController`: manages floating window visibility and topmost behavior.
 - `PreferencesStore`: stores refresh interval, path override, speed mode, topmost preference, and window state.
+- `Localization`: resolves English or Simplified Chinese strings from the system language.
 - `CodexPathResolver`: resolves environment and user-selected data paths.
 - `CodexLogStore`: discovers JSONL files and tracks incremental file metadata.
 - `CodexUsageParser`: parses Codex JSONL records into normalized usage events.
@@ -211,6 +219,7 @@ Unit tests:
 - Aggregate by local day and hour.
 - Calculate costs for standard, fast, and unknown models.
 - Resolve paths from environment and preferences.
+- Resolve English and Simplified Chinese localized strings from preferred system languages.
 
 Fixture tests:
 
@@ -225,6 +234,7 @@ UI tests or manual verification:
 - Change refresh interval.
 - Select a custom Codex path.
 - Confirm manual refresh updates displayed values.
+- Confirm the UI uses Chinese when the preferred language is Chinese and English otherwise.
 
 Build verification:
 
@@ -244,6 +254,7 @@ The first release is complete when:
 - It shows estimated cost for known models.
 - It refreshes manually and on a timer.
 - Preferences persist path, refresh interval, speed mode, and topmost behavior.
+- It automatically displays English or Simplified Chinese based on the Mac system language.
 - Unknown pricing and missing data are represented honestly.
 
 ## Open Risks
@@ -259,4 +270,5 @@ The first release is complete when:
 - Support only Codex usage.
 - Prioritize a small topmost utility window.
 - Support daily and hourly usage/cost refresh.
+- Support English and Simplified Chinese with automatic system language detection.
 - Keep all parsing and calculation local.
