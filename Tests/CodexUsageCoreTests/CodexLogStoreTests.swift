@@ -64,6 +64,22 @@ final class CodexLogStoreTests: XCTestCase {
         XCTAssertEqual(files, [])
     }
 
+    func testUnreadableSessionsDirectoryThrowsWhenDiscoveringJsonlFiles() throws {
+        let root = try makeTemporaryDirectory()
+        let sessions = root.appendingPathComponent("sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: sessions.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: sessions.path)
+        }
+
+        guard !FileManager.default.isReadableFile(atPath: sessions.path) else {
+            throw XCTSkip("Current filesystem did not make chmod 000 directory unreadable")
+        }
+
+        XCTAssertThrowsError(try CodexLogStore().discoverJSONLFiles(root: root))
+    }
+
     func testLoadEventsUsesSessionsDirectoryAsParserRoot() throws {
         let root = try makeTemporaryDirectory()
         let project = root.appendingPathComponent("sessions/project-a", isDirectory: true)

@@ -11,22 +11,27 @@ public struct CodexLogStore: Sendable {
         let files = try discoverJSONLFiles(root: root)
         let sessionsRoot = sessionsDirectoryRoot(for: root).resolvingSymlinksInPath()
 
-        return try files.flatMap { file in
+        var events: [CodexUsageEvent] = []
+        for file in files {
+            try Task.checkCancellation()
             let resolvedFile = file.resolvingSymlinksInPath()
             let modified = try? FileManager.default
                 .attributesOfItem(atPath: file.path)[.modificationDate] as? Date
 
-            return try parser.parseFile(
+            events.append(contentsOf: try parser.parseFile(
                 resolvedFile,
                 sessionsRoot: sessionsRoot,
                 fallbackModifiedDate: modified ?? Date()
-            )
+            ))
         }
+
+        return events
     }
 
     public func discoverJSONLFiles(root: URL) throws -> [URL] {
         try validateReadableDirectory(root)
         let scanRoot = sessionsDirectoryRoot(for: root)
+        try validateReadableDirectory(scanRoot)
 
         guard let enumerator = FileManager.default.enumerator(
             at: scanRoot,
@@ -38,6 +43,7 @@ public struct CodexLogStore: Sendable {
 
         var files: [URL] = []
         for case let file as URL in enumerator {
+            try Task.checkCancellation()
             let values = try file.resourceValues(forKeys: [.isRegularFileKey])
             guard values.isRegularFile == true, file.pathExtension == "jsonl" else {
                 continue

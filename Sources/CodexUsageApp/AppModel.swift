@@ -17,6 +17,7 @@ final class AppModel {
     var refreshInterval: RefreshInterval {
         didSet {
             UserDefaults.standard.set(refreshInterval.rawValue, forKey: Self.refreshIntervalKey)
+            restartTimerIfRunning()
         }
     }
     var speedMode: SpeedMode {
@@ -64,31 +65,15 @@ final class AppModel {
 
         refreshTask = Task {
             do {
-                let result = try await Task.detached {
-                    let store = CodexLogStore(parser: CodexUsageParser())
-                    return (
-                        events: try store.loadEvents(root: path),
-                        autoDetectedFast: store.detectFastMode(root: path)
-                    )
-                }.value
+                let result = try await Self.makeRefreshResult(path: path, speedMode: speedMode)
+                try Task.checkCancellation()
 
-                guard !Task.isCancelled else {
-                    return
-                }
-
-                let pricing = PricingService(
-                    speedMode: speedMode,
-                    autoDetectedFast: result.autoDetectedFast
-                )
-                let snapshot = UsageAggregator(pricing: pricing)
-                    .snapshot(events: result.events, now: Date())
-
-                self.snapshot = snapshot
-                self.statusMessage = result.events.isEmpty ? strings.noData : path.path
+                self.snapshot = result.snapshot
+                self.statusMessage = result.hasEvents ? result.path : strings.noData
+            } catch is CancellationError {
+                return
             } catch {
-                guard !Task.isCancelled else {
-                    return
-                }
+                self.snapshot = Self.emptySnapshot()
                 self.statusMessage = strings.unreadablePath
             }
         }
@@ -107,9 +92,43 @@ final class AppModel {
         }
     }
 
+    private func restartTimerIfRunning() {
+        guard timerTask != nil else {
+            return
+        }
+
+        timerTask?.cancel()
+        timerTask = nil
+        startTimerIfNeeded()
+    }
+
     deinit {
         refreshTask?.cancel()
         timerTask?.cancel()
+    }
+
+    private nonisolated static func makeRefreshResult(
+        path: URL,
+        speedMode: SpeedMode
+    ) async throws -> AppRefreshResult {
+        try Task.checkCancellation()
+
+        let store = CodexLogStore(parser: CodexUsageParser())
+        let events = try store.loadEvents(root: path)
+        try Task.checkCancellation()
+
+        let autoDetectedFast = store.detectFastMode(root: path)
+        try Task.checkCancellation()
+
+        let pricing = PricingService(speedMode: speedMode, autoDetectedFast: autoDetectedFast)
+        let snapshot = UsageAggregator(pricing: pricing).snapshot(events: events, now: Date())
+        try Task.checkCancellation()
+
+        return AppRefreshResult(
+            snapshot: snapshot,
+            hasEvents: !events.isEmpty,
+            path: path.path
+        )
     }
 
     private static func emptySnapshot() -> UsageSnapshot {
@@ -131,4 +150,10 @@ final class AppModel {
             warnings: []
         )
     }
+}
+
+private struct AppRefreshResult: Sendable {
+    let snapshot: UsageSnapshot
+    let hasEvents: Bool
+    let path: String
 }

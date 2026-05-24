@@ -7,6 +7,10 @@ final class LocalizationTests: XCTestCase {
         XCTAssertEqual(strings.codexUsageTitle, "Codex 用量")
         XCTAssertEqual(strings.today, "今日")
         XCTAssertEqual(strings.thisHour, "本小时")
+        XCTAssertEqual(strings.quit, "退出")
+        XCTAssertEqual(strings.auto, "自动")
+        XCTAssertEqual(strings.standard, "标准")
+        XCTAssertEqual(strings.fast, "快速")
     }
 
     func testEnglishFallbackForNonChineseLanguage() {
@@ -14,6 +18,10 @@ final class LocalizationTests: XCTestCase {
         XCTAssertEqual(strings.codexUsageTitle, "Codex Usage")
         XCTAssertEqual(strings.today, "Today")
         XCTAssertEqual(strings.thisHour, "This Hour")
+        XCTAssertEqual(strings.quit, "Quit")
+        XCTAssertEqual(strings.auto, "Auto")
+        XCTAssertEqual(strings.standard, "Standard")
+        XCTAssertEqual(strings.fast, "Fast")
     }
 
     func testEnglishIntervalLabels() {

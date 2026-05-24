@@ -20,9 +20,13 @@ public struct AppStrings: Equatable, Sendable {
     public var models: String { text(en: "Models", zh: "模型") }
     public var refresh: String { text(en: "Refresh", zh: "刷新") }
     public var preferences: String { text(en: "Preferences", zh: "偏好设置") }
+    public var quit: String { text(en: "Quit", zh: "退出") }
     public var alwaysOnTop: String { text(en: "Always on Top", zh: "窗口置顶") }
     public var refreshInterval: String { text(en: "Refresh Interval", zh: "刷新间隔") }
     public var speedMode: String { text(en: "Speed Pricing", zh: "速度计价") }
+    public var auto: String { text(en: "Auto", zh: "自动") }
+    public var standard: String { text(en: "Standard", zh: "标准") }
+    public var fast: String { text(en: "Fast", zh: "快速") }
     public var codexPath: String { text(en: "Codex Path", zh: "Codex 路径") }
     public var noData: String { text(en: "No Codex data found", zh: "未找到 Codex 数据") }
     public var unreadablePath: String { text(en: "Path is not readable", zh: "路径不可读取") }

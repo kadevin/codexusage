@@ -19,7 +19,7 @@ struct CodexUsageApp: App {
             SettingsLink {
                 Text(model.strings.preferences)
             }
-            Button("Quit") {
+            Button(model.strings.quit) {
                 NSApplication.shared.terminate(nil)
             }
         }

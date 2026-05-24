@@ -15,9 +15,9 @@ struct PreferencesView: View {
             }
 
             Picker(model.strings.speedMode, selection: $model.speedMode) {
-                Text("Auto").tag(SpeedMode.auto)
-                Text("Standard").tag(SpeedMode.standard)
-                Text("Fast").tag(SpeedMode.fast)
+                Text(model.strings.auto).tag(SpeedMode.auto)
+                Text(model.strings.standard).tag(SpeedMode.standard)
+                Text(model.strings.fast).tag(SpeedMode.fast)
             }
 
             TextField(model.strings.codexPath, text: $model.pathOverride)
