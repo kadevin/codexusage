@@ -24,6 +24,8 @@ final class UsageWindowController {
         }
         window.minSize = NSSize(width: 360, height: 420)
         window.isReleasedWhenClosed = false
+        window.isFloatingPanel = model.isAlwaysOnTop
+        window.hidesOnDeactivate = false
         window.level = model.isAlwaysOnTop ? .floating : .normal
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.contentViewController = NSHostingController(rootView: UsageView(model: model))
@@ -46,6 +48,7 @@ final class UsageWindowController {
     }
 
     func setAlwaysOnTop(_ enabled: Bool) {
+        window.isFloatingPanel = enabled
         window.level = enabled ? .floating : .normal
     }
 }
