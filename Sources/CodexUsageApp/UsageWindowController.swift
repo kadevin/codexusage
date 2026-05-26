@@ -34,7 +34,7 @@ final class UsageWindowController {
         window.isFloatingPanel = model.isAlwaysOnTop
         window.hidesOnDeactivate = false
         window.level = model.isAlwaysOnTop ? .floating : .normal
-        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.collectionBehavior = Self.collectionBehavior(alwaysOnTop: model.isAlwaysOnTop)
 
         self.window = window
 
@@ -69,6 +69,11 @@ final class UsageWindowController {
     func setAlwaysOnTop(_ enabled: Bool) {
         window.isFloatingPanel = enabled
         window.level = enabled ? .floating : .normal
+        window.collectionBehavior = Self.collectionBehavior(alwaysOnTop: enabled)
+    }
+
+    static func collectionBehavior(alwaysOnTop: Bool) -> NSWindow.CollectionBehavior {
+        alwaysOnTop ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.managed]
     }
 
     private func fitWindow(toContentHeight contentHeight: CGFloat) {
