@@ -14,6 +14,8 @@ CodexUsage 是一个本地 macOS 菜单栏应用，用来查看 Codex token 用�
   可在偏好设置中指定自定义 Codex 路径。
 - Shows today's usage and current-hour usage.
   展示今日用量和当前小时用量。
+- Skips Codex subagent session logs by default, keeping trend totals focused on user-facing Codex conversations.
+  默认跳过 Codex 子代理 session 日志，让趋势统计聚焦用户直接使用的 Codex 会话。
 - Breaks totals down into input, cached input, output, and reasoning tokens when present.
   按输入、缓存输入、输出和思考 token 拆分用量。
 - Optionally shows 24-hour and 7-day trend tables, sorted from newest to oldest.

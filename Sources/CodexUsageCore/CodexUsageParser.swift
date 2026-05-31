@@ -12,6 +12,7 @@ public struct CodexUsageParser: Sendable {
         var events: [CodexUsageEvent] = []
         var currentModel: String?
         var previousTotalUsage: RawUsage?
+        var shouldSkipSession = false
         let handle = try FileHandle(forReadingFrom: fileURL)
         defer {
             try? handle.close()
@@ -33,7 +34,8 @@ public struct CodexUsageParser: Sendable {
                 fallbackModifiedDate: fallbackModifiedDate,
                 events: &events,
                 currentModel: &currentModel,
-                previousTotalUsage: &previousTotalUsage
+                previousTotalUsage: &previousTotalUsage,
+                shouldSkipSession: &shouldSkipSession
             )
         }
 
@@ -45,7 +47,8 @@ public struct CodexUsageParser: Sendable {
                 fallbackModifiedDate: fallbackModifiedDate,
                 events: &events,
                 currentModel: &currentModel,
-                previousTotalUsage: &previousTotalUsage
+                previousTotalUsage: &previousTotalUsage,
+                shouldSkipSession: &shouldSkipSession
             )
         }
 
@@ -60,7 +63,8 @@ public struct CodexUsageParser: Sendable {
         fallbackModifiedDate: Date,
         events: inout [CodexUsageEvent],
         currentModel: inout String?,
-        previousTotalUsage: inout RawUsage?
+        previousTotalUsage: inout RawUsage?,
+        shouldSkipSession: inout Bool
     ) throws {
         var lineStart = chunk.startIndex
 
@@ -79,7 +83,8 @@ public struct CodexUsageParser: Sendable {
                     fallbackModifiedDate: fallbackModifiedDate,
                     events: &events,
                     currentModel: &currentModel,
-                    previousTotalUsage: &previousTotalUsage
+                    previousTotalUsage: &previousTotalUsage,
+                    shouldSkipSession: &shouldSkipSession
                 )
             } else {
                 pendingLine.append(contentsOf: chunk[lineStart..<newlineIndex])
@@ -90,7 +95,8 @@ public struct CodexUsageParser: Sendable {
                     fallbackModifiedDate: fallbackModifiedDate,
                     events: &events,
                     currentModel: &currentModel,
-                    previousTotalUsage: &previousTotalUsage
+                    previousTotalUsage: &previousTotalUsage,
+                    shouldSkipSession: &shouldSkipSession
                 )
                 pendingLine.removeAll(keepingCapacity: false)
             }
@@ -106,12 +112,28 @@ public struct CodexUsageParser: Sendable {
         fallbackModifiedDate: Date,
         events: inout [CodexUsageEvent],
         currentModel: inout String?,
-        previousTotalUsage: inout RawUsage?
+        previousTotalUsage: inout RawUsage?,
+        shouldSkipSession: inout Bool
     ) {
         guard
             lineMightContainUsage(lineData),
             let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any]
         else {
+            return
+        }
+
+        if object["type"] as? String == "session_meta" {
+            if
+                let payload = object["payload"] as? [String: Any],
+                Self.isSubagentSession(payload)
+            {
+                shouldSkipSession = true
+                events.removeAll(keepingCapacity: true)
+            }
+            return
+        }
+
+        guard !shouldSkipSession else {
             return
         }
 
@@ -134,7 +156,7 @@ public struct CodexUsageParser: Sendable {
         let info = payload["info"] as? [String: Any]
         let lastUsage = (info?["last_token_usage"] as? [String: Any]).flatMap(RawUsage.init)
         let totalUsage = (info?["total_token_usage"] as? [String: Any]).flatMap(RawUsage.init)
-        let usage = lastUsage ?? totalUsage.map { $0.subtracting(previousTotalUsage) }
+        let usage = totalUsage.map { $0.subtracting(previousTotalUsage) } ?? lastUsage
 
         if let totalUsage {
             previousTotalUsage = totalUsage
@@ -178,6 +200,18 @@ public struct CodexUsageParser: Sendable {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    private static func isSubagentSession(_ payload: [String: Any]) -> Bool {
+        if normalizedModel(payload["thread_source"]) == "subagent" {
+            return true
+        }
+
+        if let source = payload["source"] as? [String: Any], source["subagent"] != nil {
+            return true
+        }
+
+        return false
+    }
+
     private static func sessionId(for fileURL: URL, sessionsRoot: URL) -> String {
         let rootPath = sessionsRoot.standardizedFileURL.path
         let filePath = fileURL.deletingPathExtension().standardizedFileURL.path
@@ -215,6 +249,7 @@ public struct CodexUsageParser: Sendable {
     private static let chunkByteCount = 1024 * 1024
     private static let newlineByte = UInt8(ascii: "\n")
     private static let relevantMarkers = [
+        Data(#""session_meta""#.utf8),
         Data(#""turn_context""#.utf8),
         Data(#""token_count""#.utf8)
     ]

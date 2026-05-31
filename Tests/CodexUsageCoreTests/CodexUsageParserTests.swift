@@ -29,6 +29,37 @@ final class CodexUsageParserTests: XCTestCase {
         XCTAssertEqual(events[1].totalTokens, 540)
     }
 
+    func testRepeatedTotalUsageSnapshotIsNotCountedAgain() throws {
+        let fixture = try makeJSONL([
+            #"{"timestamp":"2026-05-24T00:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"total_tokens":100},"total_token_usage":{"input_tokens":100,"total_tokens":100}}}}"#,
+            #"{"timestamp":"2026-05-24T00:02:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"total_tokens":100},"total_token_usage":{"input_tokens":100,"total_tokens":100}}}}"#
+        ])
+
+        let events = try CodexUsageParser().parseFile(
+            fixture,
+            sessionsRoot: fixture.deletingLastPathComponent(),
+            fallbackModifiedDate: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events[0].totalTokens, 100)
+    }
+
+    func testSubagentSessionIsSkippedByDefault() throws {
+        let fixture = try makeJSONL([
+            #"{"timestamp":"2026-05-24T00:00:00.000Z","type":"session_meta","payload":{"id":"subagent-session","thread_source":"subagent","source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent"}}}}}"#,
+            #"{"timestamp":"2026-05-24T00:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"total_tokens":100},"total_token_usage":{"input_tokens":100,"total_tokens":100}}}}"#
+        ])
+
+        let events = try CodexUsageParser().parseFile(
+            fixture,
+            sessionsRoot: fixture.deletingLastPathComponent(),
+            fallbackModifiedDate: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(events, [])
+    }
+
     func testWhitespaceModelFallsBackAndMarksFallback() throws {
         let fallbackDate = Date(timeIntervalSince1970: 1)
         let fixture = try makeJSONL([
