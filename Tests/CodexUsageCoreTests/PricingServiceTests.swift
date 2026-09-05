@@ -2,261 +2,176 @@ import CodexUsageCore
 import XCTest
 
 final class PricingServiceTests: XCTestCase {
-    func testKnownModelCostUsesStandardPricing() {
+    func testOfficialCodexCreditRates() {
         let service = PricingService(speedMode: .standard, autoDetectedFast: false)
-        let estimate = service.estimate(
-            events: [
-                CodexUsageEvent(
-                    sessionId: "s1",
-                    timestamp: Date(timeIntervalSince1970: 0),
-                    model: "gpt-5.2-codex",
-                    inputTokens: 1_000_000,
-                    cachedInputTokens: 0,
-                    outputTokens: 1_000_000,
-                    reasoningTokens: 0,
-                    totalTokens: 2_000_000,
-                    sourceFile: URL(fileURLWithPath: "/tmp/a.jsonl")
-                )
-            ]
-        )
-        XCTAssertEqual(estimate.hasUnknownPricing, false)
-        XCTAssertEqual(estimate.usedFallbackMultiplier, false)
-        XCTAssertEqual(estimate.usd, Decimal(string: "15.75"))
+        let expectations: [(String, Decimal)] = [
+            ("gpt-5.6-sol", Decimal(string: "610")!),
+            ("gpt-5.6-terra", Decimal(string: "355")!),
+            ("gpt-5.6-luna", Decimal(string: "35.5")!),
+            ("gpt-5.5", Decimal(string: "887.5")!),
+            ("gpt-5.4", Decimal(string: "443.75")!),
+            ("gpt-5.4-mini", Decimal(string: "133.625")!)
+        ]
+
+        for (model, expectedCredits) in expectations {
+            let estimate = service.estimate(events: [event(model: model)])
+
+            XCTAssertEqual(estimate.credits, expectedCredits, model)
+            XCTAssertFalse(estimate.hasUnknownPricing, model)
+        }
     }
 
-    func testUnknownModelMarksUnknownPricing() {
+    func testGpt56AliasUsesSolPricing() {
         let service = PricingService(speedMode: .standard, autoDetectedFast: false)
-        let estimate = service.estimate(
-            events: [
-                CodexUsageEvent(
-                    sessionId: "s1",
-                    timestamp: Date(timeIntervalSince1970: 0),
-                    model: "unknown-model",
-                    inputTokens: 1,
-                    cachedInputTokens: 0,
-                    outputTokens: 1,
-                    reasoningTokens: 0,
-                    totalTokens: 2,
-                    sourceFile: URL(fileURLWithPath: "/tmp/a.jsonl")
-                )
-            ]
-        )
-        XCTAssertNil(estimate.usd)
-        XCTAssertEqual(estimate.hasUnknownPricing, true)
+        let estimate = service.estimate(events: [event(model: "gpt-5.6")])
+
+        XCTAssertEqual(estimate.credits, Decimal(string: "610"))
+        XCTAssertFalse(estimate.hasUnknownPricing)
     }
 
-    func testEmptyEventsEstimateZeroCost() {
+    func testCodexAutoReviewUsesLunaPricing() {
         let service = PricingService(speedMode: .standard, autoDetectedFast: false)
-        let estimate = service.estimate(events: [])
+        let estimate = service.estimate(events: [event(model: "codex-auto-review")])
 
-        XCTAssertEqual(estimate.usd, Decimal.zero)
-        XCTAssertEqual(estimate.hasUnknownPricing, false)
-        XCTAssertEqual(estimate.usedFallbackMultiplier, false)
+        XCTAssertEqual(estimate.credits, Decimal(string: "35.5"))
+        XCTAssertFalse(estimate.hasUnknownPricing)
     }
 
-    func testFastModeUsesTwoTimesFallbackWhenModelHasNoSpecificMultiplier() {
+    func testSparkUsesCompatibilityEstimateWithoutFastMultiplier() {
         let service = PricingService(speedMode: .fast, autoDetectedFast: false)
-        let estimate = service.estimate(
-            events: [
-                CodexUsageEvent(
-                    sessionId: "s1",
-                    timestamp: Date(timeIntervalSince1970: 0),
-                    model: "gpt-5.2-codex",
-                    inputTokens: 1_000_000,
-                    cachedInputTokens: 0,
-                    outputTokens: 0,
-                    reasoningTokens: 0,
-                    totalTokens: 1_000_000,
-                    sourceFile: URL(fileURLWithPath: "/tmp/a.jsonl")
-                )
-            ]
-        )
-        XCTAssertEqual(estimate.usd, Decimal(string: "3.50"))
-        XCTAssertEqual(estimate.usedFallbackMultiplier, true)
+        let estimate = service.estimate(events: [event(model: "gpt-5.3-codex-spark")])
+
+        XCTAssertEqual(estimate.credits, Decimal(string: "398.125"))
+        XCTAssertFalse(estimate.hasUnknownPricing)
     }
 
-    func testCachedInputUsesCachedInputPricing() {
+    func testProviderPrefixedModelUsesExactKnownModelPricing() {
+        let service = PricingService(speedMode: .standard, autoDetectedFast: false)
+        let estimate = service.estimate(events: [event(model: "openai/gpt-5.6-terra")])
+
+        XCTAssertEqual(estimate.credits, Decimal(string: "355"))
+        XCTAssertFalse(estimate.hasUnknownPricing)
+    }
+
+    func testFastModeUsesDocumentedMultipliersOnly() {
+        let service = PricingService(speedMode: .fast, autoDetectedFast: false)
+
+        XCTAssertEqual(
+            service.estimate(events: [event(model: "gpt-5.5", outputTokens: 0)]).credits,
+            Decimal(string: "343.75")
+        )
+        XCTAssertEqual(
+            service.estimate(events: [event(model: "gpt-5.4", outputTokens: 0)]).credits,
+            Decimal(string: "137.5")
+        )
+    }
+
+    func testFastModeUsesGpt56Multiplier() {
+        let service = PricingService(speedMode: .fast, autoDetectedFast: false)
+        let estimate = service.estimate(events: [event(model: "gpt-5.6-sol", outputTokens: 0)])
+
+        XCTAssertEqual(estimate.credits, Decimal(string: "275"))
+        XCTAssertFalse(estimate.hasUnknownPricing)
+    }
+
+    func testAutoModeUsesDetectedFastMode() {
+        let service = PricingService(speedMode: .auto, autoDetectedFast: true)
+        let estimate = service.estimate(events: [event(model: "gpt-5.5", outputTokens: 0)])
+
+        XCTAssertEqual(estimate.credits, Decimal(string: "343.75"))
+    }
+
+    func testAutoModeUsesRecordedServiceTierPerEvent() {
+        let service = PricingService(speedMode: .auto, autoDetectedFast: false)
+        let estimate = service.estimate(events: [
+            event(model: "gpt-5.6-sol", inputTokens: 1_000_000, cachedInputTokens: 0, outputTokens: 0, serviceTier: .standard),
+            event(model: "gpt-5.6-sol", inputTokens: 1_000_000, cachedInputTokens: 0, outputTokens: 0, serviceTier: .fast)
+        ])
+
+        XCTAssertEqual(estimate.credits, Decimal(string: "350"))
+    }
+
+    func testCachedInputUsesCachedInputRate() {
         let service = PricingService(speedMode: .standard, autoDetectedFast: false)
         let estimate = service.estimate(
             events: [
-                CodexUsageEvent(
-                    sessionId: "s1",
-                    timestamp: Date(timeIntervalSince1970: 0),
-                    model: "gpt-5.2-codex",
+                event(
+                    model: "gpt-5.6-sol",
                     inputTokens: 600_000,
                     cachedInputTokens: 400_000,
-                    outputTokens: 0,
-                    reasoningTokens: 0,
-                    totalTokens: 1_000_000,
-                    sourceFile: URL(fileURLWithPath: "/tmp/a.jsonl")
+                    outputTokens: 0
                 )
             ]
         )
-        XCTAssertEqual(estimate.usd, Decimal(string: "1.12"))
-        XCTAssertEqual(estimate.hasUnknownPricing, false)
-        XCTAssertEqual(estimate.usedFallbackMultiplier, false)
+
+        XCTAssertEqual(estimate.credits, Decimal(string: "64"))
     }
 
-    func testGpt55PricingMatchesCcusagePricingTable() {
+    func testDeprecatedGenericModelDoesNotFuzzyMatchCurrentModel() {
+        let service = PricingService(speedMode: .standard, autoDetectedFast: false)
+        let estimate = service.estimate(events: [event(model: "gpt-5")])
+
+        XCTAssertNil(estimate.credits)
+        XCTAssertTrue(estimate.hasUnknownPricing)
+    }
+
+    func testMixedKnownAndUnknownEventsReturnKnownCreditsAndUnknownFlag() {
         let service = PricingService(speedMode: .standard, autoDetectedFast: false)
         let estimate = service.estimate(
             events: [
-                CodexUsageEvent(
-                    sessionId: "s1",
-                    timestamp: Date(timeIntervalSince1970: 0),
-                    model: "gpt-5.5",
-                    inputTokens: 1_000_000,
-                    cachedInputTokens: 1_000_000,
-                    outputTokens: 1_000_000,
-                    reasoningTokens: 0,
-                    totalTokens: 3_000_000,
-                    sourceFile: URL(fileURLWithPath: "/tmp/a.jsonl")
-                )
+                event(model: "gpt-5.6-luna", inputTokens: 1_000_000, cachedInputTokens: 0, outputTokens: 0),
+                event(model: "unknown-model", inputTokens: 1_000_000, cachedInputTokens: 0, outputTokens: 0)
             ]
         )
 
-        XCTAssertEqual(estimate.usd, Decimal(string: "35.50"))
-        XCTAssertEqual(estimate.hasUnknownPricing, false)
+        XCTAssertEqual(estimate.credits, Decimal(string: "5"))
+        XCTAssertTrue(estimate.hasUnknownPricing)
     }
 
-    func testGpt55UsesExplicitFastMultiplier() {
-        let service = PricingService(speedMode: .fast, autoDetectedFast: false)
-        let estimate = service.estimate(
-            events: [
-                CodexUsageEvent(
-                    sessionId: "s1",
-                    timestamp: Date(timeIntervalSince1970: 0),
-                    model: "gpt-5.5",
-                    inputTokens: 1_000_000,
-                    cachedInputTokens: 0,
-                    outputTokens: 0,
-                    reasoningTokens: 0,
-                    totalTokens: 1_000_000,
-                    sourceFile: URL(fileURLWithPath: "/tmp/a.jsonl")
-                )
-            ]
-        )
-
-        XCTAssertEqual(estimate.usd, Decimal(string: "12.50"))
-        XCTAssertEqual(estimate.usedFallbackMultiplier, false)
-    }
-
-    func testReasoningTokensAreNotDoubleBilledAsOutput() {
+    func testReasoningTokensAreNotDoubleCountedAsOutput() {
         let service = PricingService(speedMode: .standard, autoDetectedFast: false)
         let estimate = service.estimate(
             events: [
-                CodexUsageEvent(
-                    sessionId: "s1",
-                    timestamp: Date(timeIntervalSince1970: 0),
-                    model: "gpt-5.2-codex",
+                event(
+                    model: "gpt-5.6-sol",
                     inputTokens: 0,
                     cachedInputTokens: 0,
                     outputTokens: 100_000,
-                    reasoningTokens: 200_000,
-                    totalTokens: 300_000,
-                    sourceFile: URL(fileURLWithPath: "/tmp/a.jsonl")
+                    reasoningTokens: 200_000
                 )
             ]
         )
 
-        XCTAssertEqual(estimate.usd, Decimal(string: "1.40"))
-        XCTAssertEqual(estimate.hasUnknownPricing, false)
+        XCTAssertEqual(estimate.credits, Decimal(string: "50"))
     }
 
-    func testGpt53CodexUsesExplicitFastMultiplier() {
-        let service = PricingService(speedMode: .fast, autoDetectedFast: false)
-        let estimate = service.estimate(
-            events: [
-                CodexUsageEvent(
-                    sessionId: "s1",
-                    timestamp: Date(timeIntervalSince1970: 0),
-                    model: "openai/gpt-5.3-codex",
-                    inputTokens: 1_000_000,
-                    cachedInputTokens: 0,
-                    outputTokens: 0,
-                    reasoningTokens: 0,
-                    totalTokens: 1_000_000,
-                    sourceFile: URL(fileURLWithPath: "/tmp/a.jsonl")
-                )
-            ]
-        )
-
-        XCTAssertEqual(estimate.usd, Decimal(string: "3.50"))
-        XCTAssertEqual(estimate.usedFallbackMultiplier, false)
-    }
-
-    func testGpt54PricingMatchesCodexPricingTable() {
+    func testEmptyEventsEstimateZeroCredits() {
         let service = PricingService(speedMode: .standard, autoDetectedFast: false)
-        let estimate = service.estimate(
-            events: [
-                CodexUsageEvent(
-                    sessionId: "s1",
-                    timestamp: Date(timeIntervalSince1970: 0),
-                    model: "gpt-5.4",
-                    inputTokens: 1_000_000,
-                    cachedInputTokens: 0,
-                    outputTokens: 1_000_000,
-                    reasoningTokens: 0,
-                    totalTokens: 2_000_000,
-                    sourceFile: URL(fileURLWithPath: "/tmp/a.jsonl")
-                )
-            ]
-        )
+        let estimate = service.estimate(events: [])
 
-        XCTAssertEqual(estimate.usd, Decimal(string: "17.50"))
-        XCTAssertEqual(estimate.hasUnknownPricing, false)
+        XCTAssertEqual(estimate.credits, Decimal.zero)
+        XCTAssertFalse(estimate.hasUnknownPricing)
     }
 
-    func testAutoModeUsesFallbackMultiplierWhenFastIsDetected() {
-        let service = PricingService(speedMode: .auto, autoDetectedFast: true)
-        let estimate = service.estimate(
-            events: [
-                CodexUsageEvent(
-                    sessionId: "s1",
-                    timestamp: Date(timeIntervalSince1970: 0),
-                    model: "gpt-5.2-codex",
-                    inputTokens: 1_000_000,
-                    cachedInputTokens: 0,
-                    outputTokens: 0,
-                    reasoningTokens: 0,
-                    totalTokens: 1_000_000,
-                    sourceFile: URL(fileURLWithPath: "/tmp/a.jsonl")
-                )
-            ]
+    private func event(
+        model: String,
+        inputTokens: Int = 1_000_000,
+        cachedInputTokens: Int = 1_000_000,
+        outputTokens: Int = 1_000_000,
+        reasoningTokens: Int = 0,
+        serviceTier: UsageServiceTier? = nil
+    ) -> CodexUsageEvent {
+        CodexUsageEvent(
+            sessionId: UUID().uuidString,
+            timestamp: Date(timeIntervalSince1970: 0),
+            model: model,
+            inputTokens: inputTokens,
+            cachedInputTokens: cachedInputTokens,
+            outputTokens: outputTokens,
+            reasoningTokens: reasoningTokens,
+            totalTokens: inputTokens + outputTokens,
+            sourceFile: URL(fileURLWithPath: "/tmp/test.jsonl"),
+            serviceTier: serviceTier
         )
-        XCTAssertEqual(estimate.usd, Decimal(string: "3.50"))
-        XCTAssertEqual(estimate.usedFallbackMultiplier, true)
-    }
-
-    func testMixedKnownAndUnknownEventsReturnKnownCostAndUnknownFlag() {
-        let service = PricingService(speedMode: .standard, autoDetectedFast: false)
-        let estimate = service.estimate(
-            events: [
-                CodexUsageEvent(
-                    sessionId: "s1",
-                    timestamp: Date(timeIntervalSince1970: 0),
-                    model: "gpt-5.2-codex",
-                    inputTokens: 1_000_000,
-                    cachedInputTokens: 0,
-                    outputTokens: 0,
-                    reasoningTokens: 0,
-                    totalTokens: 1_000_000,
-                    sourceFile: URL(fileURLWithPath: "/tmp/a.jsonl")
-                ),
-                CodexUsageEvent(
-                    sessionId: "s1",
-                    timestamp: Date(timeIntervalSince1970: 0),
-                    model: "unknown-model",
-                    inputTokens: 1_000_000,
-                    cachedInputTokens: 0,
-                    outputTokens: 0,
-                    reasoningTokens: 0,
-                    totalTokens: 1_000_000,
-                    sourceFile: URL(fileURLWithPath: "/tmp/b.jsonl")
-                )
-            ]
-        )
-        XCTAssertEqual(estimate.usd, Decimal(string: "1.75"))
-        XCTAssertEqual(estimate.hasUnknownPricing, true)
     }
 }

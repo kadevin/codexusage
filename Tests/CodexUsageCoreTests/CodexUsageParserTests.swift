@@ -45,10 +45,11 @@ final class CodexUsageParserTests: XCTestCase {
         XCTAssertEqual(events[0].totalTokens, 100)
     }
 
-    func testSubagentSessionIsSkippedByDefault() throws {
+    func testSubagentSessionUsageIsIncluded() throws {
         let fixture = try makeJSONL([
-            #"{"timestamp":"2026-05-24T00:00:00.000Z","type":"session_meta","payload":{"id":"subagent-session","thread_source":"subagent","source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent"}}}}}"#,
-            #"{"timestamp":"2026-05-24T00:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"total_tokens":100},"total_token_usage":{"input_tokens":100,"total_tokens":100}}}}"#
+            #"{"timestamp":"2026-05-24T00:10:00.000Z","type":"session_meta","payload":{"id":"subagent-session","thread_source":"subagent","source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent"}}}}}"#,
+            #"{"timestamp":"2026-05-24T00:05:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"total_tokens":100}}}}"#,
+            #"{"timestamp":"2026-05-24T00:11:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":130,"total_tokens":130}}}}"#
         ])
 
         let events = try CodexUsageParser().parseFile(
@@ -57,7 +58,27 @@ final class CodexUsageParserTests: XCTestCase {
             fallbackModifiedDate: Date(timeIntervalSince1970: 0)
         )
 
-        XCTAssertEqual(events, [])
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events[0].sessionId, "subagent-session")
+        XCTAssertEqual(events[0].inputTokens, 30)
+        XCTAssertEqual(events[0].totalTokens, 30)
+    }
+
+    func testThreadSettingsApplyServiceTierToFollowingUsage() throws {
+        let fixture = try makeJSONL([
+            #"{"timestamp":"2026-05-24T00:00:00.000Z","type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":{"service_tier":"default"}}}"#,
+            #"{"timestamp":"2026-05-24T00:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":10,"total_tokens":10}}}}"#,
+            #"{"timestamp":"2026-05-24T00:02:00.000Z","type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":{"service_tier":"priority"}}}"#,
+            #"{"timestamp":"2026-05-24T00:03:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":20,"total_tokens":20}}}}"#
+        ])
+
+        let events = try CodexUsageParser().parseFile(
+            fixture,
+            sessionsRoot: fixture.deletingLastPathComponent(),
+            fallbackModifiedDate: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(events.map(\.serviceTier), [.standard, .fast])
     }
 
     func testWhitespaceModelFallsBackAndMarksFallback() throws {

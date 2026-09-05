@@ -15,9 +15,9 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Test and package
-    runs-on: macos-latest
+  test:
+    name: Test
+    runs-on: macos-15
     timeout-minutes: 20
 
     steps:
@@ -30,33 +30,122 @@ jobs:
       - name: Run tests
         run: swift test
 
+  build-binaries:
+    name: Build ${{ matrix.arch }}
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x86_64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Build release binary
+        run: swift build -c release
+
+      - name: Verify native architecture
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          test -x .build/release/CodexUsage
+          file .build/release/CodexUsage
+          lipo -archs .build/release/CodexUsage | grep -qw "$EXPECTED_ARCH"
+
+      - name: Stage binary
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p artifacts
+          cp .build/release/CodexUsage "artifacts/CodexUsage-${ARCH}"
+
+      - name: Upload native binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: CodexUsage-${{ matrix.arch }}
+          path: artifacts/CodexUsage-${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 7
+
+  package:
+    name: Package universal app
+    needs: build-binaries
+    runs-on: macos-15
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Download arm64 binary
+        uses: actions/download-artifact@v7
+        with:
+          name: CodexUsage-arm64
+          path: native/arm64
+
+      - name: Download x86_64 binary
+        uses: actions/download-artifact@v7
+        with:
+          name: CodexUsage-x86_64
+          path: native/x86_64
+
+      - name: Merge universal binary
+        run: |
+          chmod +x native/arm64/CodexUsage-arm64 native/x86_64/CodexUsage-x86_64
+          mkdir -p native/universal
+          lipo -create \
+            native/arm64/CodexUsage-arm64 \
+            native/x86_64/CodexUsage-x86_64 \
+            -output native/universal/CodexUsage
+          chmod +x native/universal/CodexUsage
+          ARCHS="$(lipo -archs native/universal/CodexUsage)"
+          [[ "$ARCHS" == "x86_64 arm64" || "$ARCHS" == "arm64 x86_64" ]]
+
       - name: Package app
-        run: ./scripts/package-app.sh
+        env:
+          PREBUILT_BINARY: ${{ github.workspace }}/native/universal/CodexUsage
+          APP_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          APP_VERSION="${APP_VERSION#v}" ./scripts/package-app.sh
 
       - name: Verify app bundle
         run: |
           test -d build/CodexUsage.app
           test -x build/CodexUsage.app/Contents/MacOS/CodexUsage
           test -f build/CodexUsage.app/Contents/Resources/CodexUsage.icns
+          ARCHS="$(lipo -archs build/CodexUsage.app/Contents/MacOS/CodexUsage)"
+          [[ "$ARCHS" == "x86_64 arm64" || "$ARCHS" == "arm64 x86_64" ]]
           plutil -lint build/CodexUsage.app/Contents/Info.plist
           plutil -extract CFBundleIconFile raw build/CodexUsage.app/Contents/Info.plist | grep -qx CodexUsage
+          codesign --verify --deep --strict build/CodexUsage.app
 
       - name: Create artifact zip
         run: |
           mkdir -p artifacts
-          ditto -c -k --keepParent build/CodexUsage.app artifacts/CodexUsage-macOS.zip
+          ditto -c -k --keepParent build/CodexUsage.app artifacts/CodexUsage-macOS-universal.zip
+          shasum -a 256 artifacts/CodexUsage-macOS-universal.zip > artifacts/CodexUsage-macOS-universal.zip.sha256
 
       - name: Upload app artifact
         uses: actions/upload-artifact@v7
         with:
-          name: CodexUsage-macOS
-          path: artifacts/CodexUsage-macOS.zip
+          name: CodexUsage-macOS-universal
+          path: |
+            artifacts/CodexUsage-macOS-universal.zip
+            artifacts/CodexUsage-macOS-universal.zip.sha256
           if-no-files-found: error
           retention-days: 30
 
   release:
     name: Publish release
-    needs: build
+    needs: package
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -68,7 +157,7 @@ jobs:
       - name: Download packaged app
         uses: actions/download-artifact@v7
         with:
-          name: CodexUsage-macOS
+          name: CodexUsage-macOS-universal
           path: release-artifacts
 
       - name: Publish GitHub release
@@ -79,15 +168,14 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          sha256sum release-artifacts/CodexUsage-macOS.zip > release-artifacts/CodexUsage-macOS.zip.sha256
           cat > release-notes.md <<EOF
-          CodexUsage macOS menu bar app release.
+          CodexUsage macOS universal app release for Apple Silicon and Intel Macs.
 
-          CodexUsage macOS 菜单栏应用发布版本。
+          CodexUsage macOS 通用应用发布版本，支持 Apple Silicon 与 Intel Mac。
 
           Download / 下载:
-          - CodexUsage-macOS.zip
-          - CodexUsage-macOS.zip.sha256
+          - CodexUsage-macOS-universal.zip
+          - CodexUsage-macOS-universal.zip.sha256
 
           Build / 构建:
           - Tag: ${TAG_NAME}
@@ -100,13 +188,13 @@ jobs:
               --title "CodexUsage ${TAG_NAME}" \
               --notes-file release-notes.md
             gh release upload "${TAG_NAME}" \
-              "release-artifacts/CodexUsage-macOS.zip#CodexUsage macOS app" \
-              "release-artifacts/CodexUsage-macOS.zip.sha256#SHA-256 checksum" \
+              "release-artifacts/CodexUsage-macOS-universal.zip#CodexUsage universal macOS app" \
+              "release-artifacts/CodexUsage-macOS-universal.zip.sha256#SHA-256 checksum" \
               --clobber
           else
             gh release create "${TAG_NAME}" \
-              "release-artifacts/CodexUsage-macOS.zip#CodexUsage macOS app" \
-              "release-artifacts/CodexUsage-macOS.zip.sha256#SHA-256 checksum" \
+              "release-artifacts/CodexUsage-macOS-universal.zip#CodexUsage universal macOS app" \
+              "release-artifacts/CodexUsage-macOS-universal.zip.sha256#SHA-256 checksum" \
               --title "CodexUsage ${TAG_NAME}" \
               --notes-file release-notes.md
           fi

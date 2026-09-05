@@ -18,6 +18,7 @@ public struct AppStrings: Equatable, Sendable {
     public var thisHour: String { text(en: "This Hour", zh: "本小时") }
     public var recentHours: String { text(en: "Recent 24h", zh: "最近 24 小时") }
     public var models: String { text(en: "Models", zh: "模型") }
+    public var primaryModelToday: String { text(en: "Primary model today", zh: "今日主要模型") }
     public var refresh: String { text(en: "Refresh", zh: "刷新") }
     public var preferences: String { text(en: "Preferences", zh: "偏好设置") }
     public var quit: String { text(en: "Quit", zh: "退出") }
@@ -32,10 +33,10 @@ public struct AppStrings: Equatable, Sendable {
     public var loading: String { text(en: "Loading Codex data...", zh: "正在读取 Codex 数据...") }
     public var noData: String { text(en: "No Codex data found", zh: "未找到 Codex 数据") }
     public var unreadablePath: String { text(en: "Path is not readable", zh: "路径不可读取") }
-    public var unknownPricing: String { text(en: "Unknown pricing", zh: "未知价格") }
+    public var unknownPricing: String { text(en: "Unknown credits", zh: "未知点数") }
     public var estimated: String { text(en: "Estimated", zh: "估算") }
     public var partialPricing: String { text(en: "Partial", zh: "部分") }
-    public var fallbackPricing: String { text(en: "Fallback", zh: "回退") }
+    public var creditUnit: String { text(en: "credits", zh: "点数") }
     public var lastUpdated: String { text(en: "Updated", zh: "更新于") }
     public var inputShort: String { text(en: "In", zh: "入") }
     public var cachedShort: String { text(en: "Cache", zh: "缓存") }
@@ -47,7 +48,31 @@ public struct AppStrings: Equatable, Sendable {
     public var last7Days: String { text(en: "7d", zh: "7 天") }
     public var period: String { text(en: "Period", zh: "时间") }
     public var tokens: String { text(en: "Tokens", zh: "用量") }
-    public var cost: String { text(en: "Cost", zh: "成本") }
+    public var cost: String { text(en: "Credits", zh: "点数") }
+    public var tokenDetails: String { text(en: "Token Details", zh: "Token 详情") }
+    public var hourlyBreakdown: String { text(en: "Hourly Breakdown", zh: "小时分布") }
+    public var modelBreakdown: String { text(en: "Model Breakdown", zh: "模型分布") }
+    public var viewDayDetails: String { text(en: "View day details", zh: "查看日期详情") }
+    public var noModelUsage: String { text(en: "No model usage", zh: "无模型用量") }
+    public var calls: String { text(en: "Calls", zh: "次数") }
+    public var cacheRate: String { text(en: "Cache Rate", zh: "缓存率") }
+    public var officialQuota: String { text(en: "Official Quota", zh: "官方额度") }
+    public var localEstimate: String { text(en: "Local Log Estimate", zh: "本地日志估算") }
+    public var officialQuotaUnavailable: String {
+        text(en: "Official quota unavailable", zh: "官方额度暂不可用")
+    }
+    public var used: String { text(en: "used", zh: "已用") }
+    public var resets: String { text(en: "Resets", zh: "重置") }
+    public var codexExecutable: String { text(en: "Codex Executable", zh: "Codex 可执行文件") }
+    public var resetCredits: String { text(en: "Reset credits", zh: "重置额度") }
+
+    public func remainingPercentLabel(_ percent: Int) -> String {
+        language == .simplifiedChinese ? "剩余 \(percent)%" : "\(percent)% remaining"
+    }
+
+    public func usedPercentLabel(_ percent: Int) -> String {
+        language == .simplifiedChinese ? "已用 \(percent)%" : "\(percent)% used"
+    }
 
     public func intervalLabel(_ interval: RefreshInterval) -> String {
         switch (language, interval) {
@@ -60,6 +85,27 @@ public struct AppStrings: Equatable, Sendable {
         case (.simplifiedChinese, .sixtySeconds): return "60 秒"
         case (.simplifiedChinese, .fiveMinutes): return "5 分钟"
         }
+    }
+
+    public func quotaWindowLabel(minutes: Int?) -> String {
+        guard let minutes else {
+            return text(en: "Usage window", zh: "用量窗口")
+        }
+        if minutes.isMultiple(of: 1_440) {
+            let days = minutes / 1_440
+            return language == .simplifiedChinese
+                ? "\(days) 天"
+                : "\(days) \(days == 1 ? "day" : "days")"
+        }
+        if minutes.isMultiple(of: 60) {
+            let hours = minutes / 60
+            return language == .simplifiedChinese
+                ? "\(hours) 小时"
+                : "\(hours) \(hours == 1 ? "hour" : "hours")"
+        }
+        return language == .simplifiedChinese
+            ? "\(minutes) 分钟"
+            : "\(minutes) \(minutes == 1 ? "minute" : "minutes")"
     }
 
     private func text(en: String, zh: String) -> String {

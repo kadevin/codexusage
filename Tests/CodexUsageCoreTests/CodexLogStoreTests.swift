@@ -1,4 +1,4 @@
-import CodexUsageCore
+@testable import CodexUsageCore
 import XCTest
 
 final class CodexLogStoreTests: XCTestCase {
@@ -14,6 +14,25 @@ final class CodexLogStoreTests: XCTestCase {
         XCTAssertEqual(
             files.map { $0.resolvingSymlinksInPath().path },
             [session.resolvingSymlinksInPath().path]
+        )
+    }
+
+    func testDiscoversJsonlFilesUnderSessionsAndArchivedSessions() throws {
+        let root = try makeTemporaryDirectory()
+        let sessions = root.appendingPathComponent("sessions", isDirectory: true)
+        let archivedSessions = root.appendingPathComponent("archived_sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: archivedSessions, withIntermediateDirectories: true)
+        let active = sessions.appendingPathComponent("active.jsonl")
+        let archived = archivedSessions.appendingPathComponent("archived.jsonl")
+        try "".write(to: active, atomically: true, encoding: .utf8)
+        try "".write(to: archived, atomically: true, encoding: .utf8)
+
+        let files = try CodexLogStore().discoverJSONLFiles(root: root)
+
+        XCTAssertEqual(
+            files.map { $0.resolvingSymlinksInPath().path },
+            [active, archived].map { $0.resolvingSymlinksInPath().path }.sorted()
         )
     }
 
@@ -92,6 +111,22 @@ final class CodexLogStoreTests: XCTestCase {
         XCTAssertEqual(events.first?.sessionId, "project-a/session")
     }
 
+    func testLoadEventsIncludesSubagentSessionUsage() throws {
+        let root = try makeTemporaryDirectory()
+        let sessions = root.appendingPathComponent("sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        let session = sessions.appendingPathComponent("subagent.jsonl")
+        let contents = [
+            #"{"timestamp":"2026-05-24T00:00:00.000Z","type":"session_meta","payload":{"thread_source":"subagent","source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent"}}}}}"#,
+            tokenCountLine(inputTokens: 23)
+        ].joined(separator: "\n")
+        try contents.write(to: session, atomically: true, encoding: .utf8)
+
+        let events = try CodexLogStore().loadEvents(root: root)
+
+        XCTAssertEqual(events.map(\.inputTokens), [23])
+    }
+
     func testLoadEventsWithSinceSkipsOldSessionFiles() throws {
         let root = try makeTemporaryDirectory()
         let sessions = root.appendingPathComponent("sessions", isDirectory: true)
@@ -116,39 +151,175 @@ final class CodexLogStoreTests: XCTestCase {
         XCTAssertEqual(events.map(\.inputTokens), [7])
     }
 
-    func testDetectsPriorityServiceTier() throws {
+    func testLoadEventsWithSinceIncludesArchivedSession() throws {
+        let root = try makeTemporaryDirectory()
+        let sessions = root.appendingPathComponent("sessions", isDirectory: true)
+        let archivedSessions = root.appendingPathComponent("archived_sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: archivedSessions, withIntermediateDirectories: true)
+        let archived = archivedSessions.appendingPathComponent(
+            "rollout-2026-05-24T00-01-00-session.jsonl"
+        )
+        try tokenCountLine(inputTokens: 9).write(to: archived, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.modificationDate: try date("2026-05-24T01:00:00Z")],
+            ofItemAtPath: archived.path
+        )
+
+        let events = try CodexLogStore().loadEvents(
+            root: root,
+            since: try date("2026-05-24T00:00:00Z")
+        )
+
+        XCTAssertEqual(events.map(\.inputTokens), [9])
+        XCTAssertEqual(events.first?.sourceFile.resolvingSymlinksInPath(), archived.resolvingSymlinksInPath())
+    }
+
+    func testSecondLoadReusesUnchangedFileWithoutReadingItAgain() throws {
+        let root = try makeTemporaryDirectory()
+        let sessions = root.appendingPathComponent("sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        let session = sessions.appendingPathComponent("session.jsonl")
+        try (tokenCountLine(inputTokens: 12) + "\n")
+            .write(to: session, atomically: true, encoding: .utf8)
+        let store = CodexLogStore()
+
+        let firstEvents = try store.loadEvents(root: root)
+        let firstMetrics = store.lastLoadMetrics
+        let secondEvents = try store.loadEvents(root: root)
+        let secondMetrics = store.lastLoadMetrics
+
+        XCTAssertEqual(firstEvents, secondEvents)
+        XCTAssertEqual(firstMetrics.parsedFileCount, 1)
+        XCTAssertGreaterThan(firstMetrics.bytesRead, 0)
+        XCTAssertEqual(secondMetrics.parsedFileCount, 0)
+        XCTAssertEqual(secondMetrics.reusedFileCount, 1)
+        XCTAssertEqual(secondMetrics.bytesRead, 0)
+    }
+
+    func testGrowingFileReadsOnlyAppendedBytesAndPreservesUsageDeltaState() throws {
+        let root = try makeTemporaryDirectory()
+        let sessions = root.appendingPathComponent("sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        let session = sessions.appendingPathComponent("session.jsonl")
+        try (totalTokenCountLine(totalInputTokens: 100, minute: 1) + "\n")
+            .write(to: session, atomically: true, encoding: .utf8)
+        let store = CodexLogStore()
+        XCTAssertEqual(try store.loadEvents(root: root).map(\.inputTokens), [100])
+
+        let appended = totalTokenCountLine(totalInputTokens: 150, minute: 2) + "\n"
+        let handle = try FileHandle(forWritingTo: session)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(appended.utf8))
+        try handle.close()
+
+        let events = try store.loadEvents(root: root)
+        let metrics = store.lastLoadMetrics
+
+        XCTAssertEqual(events.map(\.inputTokens), [100, 50])
+        XCTAssertEqual(metrics.parsedFileCount, 1)
+        XCTAssertEqual(metrics.bytesRead, UInt64(appended.utf8.count))
+    }
+
+    func testLoadEventsRetainsOnlyEventsAtOrAfterSinceWhilePreservingCumulativeDelta() throws {
+        let root = try makeTemporaryDirectory()
+        let sessions = root.appendingPathComponent("sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        let session = sessions.appendingPathComponent("session.jsonl")
+        let contents = [
+            totalTokenCountLine(totalInputTokens: 100, minute: 1),
+            totalTokenCountLine(totalInputTokens: 150, minute: 2)
+        ].joined(separator: "\n") + "\n"
+        try contents.write(to: session, atomically: true, encoding: .utf8)
+        let store = CodexLogStore()
+
+        let events = try store.loadEvents(
+            root: root,
+            since: try date("2026-05-24T00:02:00Z")
+        )
+
+        XCTAssertEqual(events.map(\.inputTokens), [50])
+        XCTAssertEqual(store.lastLoadMetrics.retainedEventCount, 1)
+    }
+
+    func testRequestingEarlierWindowReparsesAWindowedCache() throws {
+        let root = try makeTemporaryDirectory()
+        let sessions = root.appendingPathComponent("sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        let session = sessions.appendingPathComponent("session.jsonl")
+        let contents = [
+            totalTokenCountLine(totalInputTokens: 100, minute: 1),
+            totalTokenCountLine(totalInputTokens: 150, minute: 2)
+        ].joined(separator: "\n") + "\n"
+        try contents.write(to: session, atomically: true, encoding: .utf8)
+        let store = CodexLogStore()
+
+        XCTAssertEqual(
+            try store.loadEvents(root: root, since: try date("2026-05-24T00:02:00Z")).map(\.inputTokens),
+            [50]
+        )
+        let restored = try store.loadEvents(root: root)
+
+        XCTAssertEqual(restored.map(\.inputTokens), [100, 50])
+        XCTAssertEqual(store.lastLoadMetrics.parsedFileCount, 1)
+        XCTAssertGreaterThan(store.lastLoadMetrics.bytesRead, 0)
+        XCTAssertEqual(store.lastLoadMetrics.retainedEventCount, 2)
+    }
+
+    func testPriorityServiceTierDoesNotEnableFastMode() throws {
         let root = try makeTemporaryDirectory()
         try writeConfig(#"service_tier = "priority""#, root: root)
-
-        XCTAssertTrue(CodexLogStore().detectFastMode(root: root))
-    }
-
-    func testDetectsPriorityServiceTierWithoutSpaces() throws {
-        let root = try makeTemporaryDirectory()
-        try writeConfig(#"service_tier="priority""#, root: root)
-
-        XCTAssertTrue(CodexLogStore().detectFastMode(root: root))
-    }
-
-    func testDetectsFastServiceTierWithExtraSpaces() throws {
-        let root = try makeTemporaryDirectory()
-        try writeConfig(#"service_tier    =    "fast""#, root: root)
-
-        XCTAssertTrue(CodexLogStore().detectFastMode(root: root))
-    }
-
-    func testCommentedPriorityServiceTierDoesNotEnableFastMode() throws {
-        let root = try makeTemporaryDirectory()
-        try writeConfig(#"# service_tier = "priority""#, root: root)
 
         XCTAssertFalse(CodexLogStore().detectFastMode(root: root))
     }
 
-    func testDetectsQuotedPriorityServiceTierWithInlineComment() throws {
+    func testFastServiceTierRequiresFeatureFlag() throws {
         let root = try makeTemporaryDirectory()
-        try writeConfig(#"service_tier = 'priority' # use higher tier"#, root: root)
+        try writeConfig(#"service_tier = "fast""#, root: root)
+
+        XCTAssertFalse(CodexLogStore().detectFastMode(root: root))
+    }
+
+    func testDetectsFastServiceTierWithFeatureFlag() throws {
+        let root = try makeTemporaryDirectory()
+        try writeConfig(
+            """
+            service_tier = "fast"
+
+            [features]
+            fast_mode = true
+            """,
+            root: root
+        )
 
         XCTAssertTrue(CodexLogStore().detectFastMode(root: root))
+    }
+
+    func testFastModeFeatureFlagOutsideFeaturesSectionIsIgnored() throws {
+        let root = try makeTemporaryDirectory()
+        try writeConfig(
+            """
+            service_tier = "fast"
+            fast_mode = true
+            """,
+            root: root
+        )
+
+        XCTAssertFalse(CodexLogStore().detectFastMode(root: root))
+    }
+
+    func testCommentedFastConfigurationDoesNotEnableFastMode() throws {
+        let root = try makeTemporaryDirectory()
+        try writeConfig(
+            """
+            # service_tier = "fast"
+            [features]
+            # fast_mode = true
+            """,
+            root: root
+        )
+
+        XCTAssertFalse(CodexLogStore().detectFastMode(root: root))
     }
 
     func testMissingConfigDoesNotEnableFastMode() throws {
@@ -170,6 +341,10 @@ final class CodexLogStoreTests: XCTestCase {
 
     private func tokenCountLine(inputTokens: Int) -> String {
         #"{"timestamp":"2026-05-24T00:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":\#(inputTokens),"total_tokens":\#(inputTokens)}}}}"#
+    }
+
+    private func totalTokenCountLine(totalInputTokens: Int, minute: Int) -> String {
+        #"{"timestamp":"2026-05-24T00:0\#(minute):00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":\#(totalInputTokens),"total_tokens":\#(totalInputTokens)}}}}"#
     }
 
     private func date(_ string: String) throws -> Date {

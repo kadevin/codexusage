@@ -29,6 +29,7 @@ struct PreferencesView: View {
             }
 
             TextField(model.strings.codexPath, text: $model.pathOverride)
+            TextField(model.strings.codexExecutable, text: $model.codexExecutablePath)
 
             Button(model.strings.refresh) {
                 model.refresh()

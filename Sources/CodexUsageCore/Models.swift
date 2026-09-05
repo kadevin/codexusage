@@ -6,6 +6,11 @@ public enum SpeedMode: String, CaseIterable, Sendable {
     case fast
 }
 
+public enum UsageServiceTier: String, Sendable {
+    case standard
+    case fast
+}
+
 public enum RefreshInterval: Int, CaseIterable, Sendable {
     case fifteenSeconds = 15
     case thirtySeconds = 30
@@ -24,6 +29,7 @@ public struct CodexUsageEvent: Equatable, Sendable {
     public let totalTokens: Int
     public let sourceFile: URL
     public let isFallbackModel: Bool
+    public let serviceTier: UsageServiceTier?
 
     public init(
         sessionId: String,
@@ -35,7 +41,8 @@ public struct CodexUsageEvent: Equatable, Sendable {
         reasoningTokens: Int,
         totalTokens: Int,
         sourceFile: URL,
-        isFallbackModel: Bool = false
+        isFallbackModel: Bool = false,
+        serviceTier: UsageServiceTier? = nil
     ) {
         self.sessionId = sessionId
         self.timestamp = timestamp
@@ -47,6 +54,7 @@ public struct CodexUsageEvent: Equatable, Sendable {
         self.totalTokens = totalTokens
         self.sourceFile = sourceFile
         self.isFallbackModel = isFallbackModel
+        self.serviceTier = serviceTier
     }
 }
 
@@ -78,31 +86,39 @@ public struct TokenTotals: Equatable, Sendable {
         reasoningTokens: 0,
         totalTokens: 0
     )
+
+    public var cacheRate: Double? {
+        let totalInputTokens = Double(inputTokens) + Double(cachedInputTokens)
+        guard totalInputTokens > 0 else {
+            return nil
+        }
+
+        return Double(cachedInputTokens) / totalInputTokens
+    }
 }
 
 public struct CostEstimate: Equatable, Sendable {
-    public let usd: Decimal?
+    public let credits: Decimal?
     public let hasUnknownPricing: Bool
-    public let usedFallbackMultiplier: Bool
 
     public init(
-        usd: Decimal?,
-        hasUnknownPricing: Bool,
-        usedFallbackMultiplier: Bool
+        credits: Decimal?,
+        hasUnknownPricing: Bool
     ) {
-        self.usd = usd
+        self.credits = credits
         self.hasUnknownPricing = hasUnknownPricing
-        self.usedFallbackMultiplier = usedFallbackMultiplier
     }
 }
 
 public struct UsageSummary: Equatable, Sendable {
     public let totals: TokenTotals
     public let cost: CostEstimate
+    public let callCount: Int
 
-    public init(totals: TokenTotals, cost: CostEstimate) {
+    public init(totals: TokenTotals, cost: CostEstimate, callCount: Int = 0) {
         self.totals = totals
         self.cost = cost
+        self.callCount = callCount
     }
 }
 
@@ -121,10 +137,19 @@ public struct DayBucket: Equatable, Identifiable, Sendable {
     public var id: Date { start }
     public let start: Date
     public let summary: UsageSummary
+    public let hourlyBreakdown: [HourBucket]
+    public let modelBreakdown: [ModelBreakdown]
 
-    public init(start: Date, summary: UsageSummary) {
+    public init(
+        start: Date,
+        summary: UsageSummary,
+        hourlyBreakdown: [HourBucket] = [],
+        modelBreakdown: [ModelBreakdown] = []
+    ) {
         self.start = start
         self.summary = summary
+        self.hourlyBreakdown = hourlyBreakdown
+        self.modelBreakdown = modelBreakdown
     }
 }
 

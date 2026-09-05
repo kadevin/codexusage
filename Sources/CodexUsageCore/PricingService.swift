@@ -2,10 +2,10 @@ import Foundation
 
 public struct PricingService: Sendable {
     private struct ModelPrice: Sendable {
-        let inputPerMillion: Decimal
-        let cachedInputPerMillion: Decimal
-        let outputPerMillion: Decimal
-        let fastMultiplier: Decimal
+        let inputCreditsPerMillion: Decimal
+        let cachedInputCreditsPerMillion: Decimal
+        let outputCreditsPerMillion: Decimal
+        let fastMultiplier: Decimal?
     }
 
     private let speedMode: SpeedMode
@@ -18,144 +18,110 @@ public struct PricingService: Sendable {
 
     public func estimate(events: [CodexUsageEvent]) -> CostEstimate {
         guard !events.isEmpty else {
-            return CostEstimate(
-                usd: Decimal.zero,
-                hasUnknownPricing: false,
-                usedFallbackMultiplier: false
-            )
+            return CostEstimate(credits: .zero, hasUnknownPricing: false)
         }
 
         var total = Decimal.zero
-        var hasCost = false
-        var hasUnknown = false
-        var usedFallback = false
+        var hasKnownPricing = false
+        var hasUnknownPricing = false
 
         for event in events {
             guard let price = Self.price(for: event.model) else {
-                hasUnknown = true
+                hasUnknownPricing = true
                 continue
             }
 
-            hasCost = true
-            let multiplier = multiplier(for: price)
-            if effectiveFastMode, price.fastMultiplier == 1 {
-                usedFallback = true
-            }
-
-            total += Decimal(event.inputTokens) * price.inputPerMillion / 1_000_000 * multiplier
-            total += Decimal(event.cachedInputTokens) * price.cachedInputPerMillion / 1_000_000 * multiplier
-            total += Decimal(event.outputTokens) * price.outputPerMillion / 1_000_000 * multiplier
+            hasKnownPricing = true
+            let multiplier = usesFastMode(for: event) ? price.fastMultiplier ?? 1 : 1
+            total += Decimal(event.inputTokens) * price.inputCreditsPerMillion / 1_000_000 * multiplier
+            total += Decimal(event.cachedInputTokens) * price.cachedInputCreditsPerMillion / 1_000_000 * multiplier
+            total += Decimal(event.outputTokens) * price.outputCreditsPerMillion / 1_000_000 * multiplier
         }
 
         return CostEstimate(
-            usd: hasCost ? total.rounded(scale: 4) : nil,
-            hasUnknownPricing: hasUnknown,
-            usedFallbackMultiplier: usedFallback
+            credits: hasKnownPricing ? total.rounded(scale: 4) : nil,
+            hasUnknownPricing: hasUnknownPricing
         )
     }
 
-    private var effectiveFastMode: Bool {
+    private func usesFastMode(for event: CodexUsageEvent) -> Bool {
         switch speedMode {
-        case .auto: return autoDetectedFast
+        case .auto:
+            switch event.serviceTier {
+            case .fast: return true
+            case .standard: return false
+            case nil: return autoDetectedFast
+            }
         case .standard: return false
         case .fast: return true
         }
     }
 
-    private func multiplier(for price: ModelPrice) -> Decimal {
-        guard effectiveFastMode else { return 1 }
-        return price.fastMultiplier == 1 ? 2 : price.fastMultiplier
-    }
-
     private static func price(for model: String) -> ModelPrice? {
-        let normalized = model.lowercased()
-        if let exact = priceTable.first(where: { $0.model == normalized }) {
-            return exact.price
+        let normalized = model
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let modelName = normalized.split(separator: "/").last.map(String.init) ?? normalized
+
+        if modelName == "gpt-5.6" {
+            return priceTable["gpt-5.6-sol"]
+        }
+        if modelName == "codex-auto-review" {
+            return priceTable["gpt-5.6-luna"]
+        }
+        if let exact = priceTable[modelName] {
+            return exact
         }
 
         return priceTable
-            .filter { normalized.contains($0.model) || $0.model.contains(normalized) }
-            .max { lhs, rhs in
-                if lhs.model.count == rhs.model.count {
-                    return lhs.model > rhs.model
-                }
-                return lhs.model.count < rhs.model.count
-            }?
-            .price
+            .filter { modelName.hasPrefix($0.key + "-") }
+            .max { $0.key.count < $1.key.count }?
+            .value
     }
 
-    private static let priceTable: [(model: String, price: ModelPrice)] = [
-        (
-            "gpt-5.5",
-            ModelPrice(
-                inputPerMillion: Decimal(string: "5.00")!,
-                cachedInputPerMillion: Decimal(string: "0.50")!,
-                outputPerMillion: Decimal(string: "30.00")!,
-                fastMultiplier: Decimal(string: "2.5")!
-            )
+    // Official Codex credit rates plus documented compatibility estimates, updated 2026-08-31.
+    private static let priceTable: [String: ModelPrice] = [
+        "gpt-5.6-sol": ModelPrice(
+            inputCreditsPerMillion: 100,
+            cachedInputCreditsPerMillion: 10,
+            outputCreditsPerMillion: 500,
+            fastMultiplier: Decimal(string: "2.5")!
         ),
-        (
-            "gpt-5.4-mini",
-            ModelPrice(
-                inputPerMillion: Decimal(string: "0.75")!,
-                cachedInputPerMillion: Decimal(string: "0.075")!,
-                outputPerMillion: Decimal(string: "4.50")!,
-                fastMultiplier: 1
-            )
+        "gpt-5.6-terra": ModelPrice(
+            inputCreditsPerMillion: 50,
+            cachedInputCreditsPerMillion: 5,
+            outputCreditsPerMillion: 300,
+            fastMultiplier: Decimal(string: "2.5")!
         ),
-        (
-            "gpt-5.4-nano",
-            ModelPrice(
-                inputPerMillion: Decimal(string: "0.20")!,
-                cachedInputPerMillion: Decimal(string: "0.020")!,
-                outputPerMillion: Decimal(string: "1.25")!,
-                fastMultiplier: 1
-            )
+        "gpt-5.6-luna": ModelPrice(
+            inputCreditsPerMillion: 5,
+            cachedInputCreditsPerMillion: Decimal(string: "0.5")!,
+            outputCreditsPerMillion: 30,
+            fastMultiplier: Decimal(string: "2.5")!
         ),
-        (
-            "gpt-5.4",
-            ModelPrice(
-                inputPerMillion: Decimal(string: "2.50")!,
-                cachedInputPerMillion: Decimal(string: "0.25")!,
-                outputPerMillion: Decimal(string: "15.00")!,
-                fastMultiplier: 2
-            )
+        "gpt-5.5": ModelPrice(
+            inputCreditsPerMillion: 125,
+            cachedInputCreditsPerMillion: Decimal(string: "12.5")!,
+            outputCreditsPerMillion: 750,
+            fastMultiplier: Decimal(string: "2.5")!
         ),
-        (
-            "gpt-5.3-codex",
-            ModelPrice(
-                inputPerMillion: Decimal(string: "1.75")!,
-                cachedInputPerMillion: Decimal(string: "0.175")!,
-                outputPerMillion: Decimal(string: "14.00")!,
-                fastMultiplier: 2
-            )
+        "gpt-5.4": ModelPrice(
+            inputCreditsPerMillion: Decimal(string: "62.5")!,
+            cachedInputCreditsPerMillion: Decimal(string: "6.25")!,
+            outputCreditsPerMillion: 375,
+            fastMultiplier: 2
         ),
-        (
-            "gpt-5.2-codex",
-            ModelPrice(
-                inputPerMillion: Decimal(string: "1.75")!,
-                cachedInputPerMillion: Decimal(string: "0.175")!,
-                outputPerMillion: Decimal(string: "14.00")!,
-                fastMultiplier: 1
-            )
+        "gpt-5.4-mini": ModelPrice(
+            inputCreditsPerMillion: Decimal(string: "18.75")!,
+            cachedInputCreditsPerMillion: Decimal(string: "1.875")!,
+            outputCreditsPerMillion: 113,
+            fastMultiplier: nil
         ),
-        (
-            "gpt-5.2",
-            ModelPrice(
-                inputPerMillion: Decimal(string: "1.75")!,
-                cachedInputPerMillion: Decimal(string: "0.175")!,
-                outputPerMillion: Decimal(string: "14.00")!,
-                fastMultiplier: 1
-            )
-        ),
-        (
-            "gpt-5",
-            ModelPrice(
-                inputPerMillion: Decimal(string: "1.75")!,
-                cachedInputPerMillion: Decimal(string: "0.175")!,
-                outputPerMillion: Decimal(string: "14.00")!,
-                fastMultiplier: 1
-            )
+        "gpt-5.3-codex-spark": ModelPrice(
+            inputCreditsPerMillion: Decimal(string: "43.75")!,
+            cachedInputCreditsPerMillion: Decimal(string: "4.375")!,
+            outputCreditsPerMillion: 350,
+            fastMultiplier: nil
         )
     ]
 }

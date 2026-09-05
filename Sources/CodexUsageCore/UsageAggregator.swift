@@ -15,16 +15,7 @@ public struct UsageAggregator: Sendable {
         let hourStart = calendar.dateInterval(of: .hour, for: now)?.start ?? now
         let todayEvents = visibleEvents.filter { $0.timestamp >= dayStart }
         let currentHourEvents = visibleEvents.filter { $0.timestamp >= hourStart }
-        let breakdown = Dictionary(grouping: todayEvents, by: \.model)
-            .map { model, events in
-                ModelBreakdown(model: model, summary: summary(events))
-            }
-            .sorted { lhs, rhs in
-                if lhs.summary.totals.totalTokens == rhs.summary.totals.totalTokens {
-                    return lhs.model < rhs.model
-                }
-                return lhs.summary.totals.totalTokens > rhs.summary.totals.totalTokens
-            }
+        let breakdown = modelBreakdown(events: todayEvents)
         let warnings = todayEvents.contains(where: \.isFallbackModel) ? ["fallback-model"] : []
 
         return UsageSnapshot(
@@ -40,34 +31,65 @@ public struct UsageAggregator: Sendable {
 
     private func recentHours(events: [CodexUsageEvent], now: Date) -> [HourBucket] {
         let currentHour = calendar.dateInterval(of: .hour, for: now)?.start ?? now
+        let eventsByHour = Dictionary(grouping: events) { event in
+            calendar.dateInterval(of: .hour, for: event.timestamp)?.start ?? event.timestamp
+        }
 
         return (0..<24).reversed().compactMap { offset in
-            guard
-                let start = calendar.date(byAdding: .hour, value: -offset, to: currentHour),
-                let end = calendar.date(byAdding: .hour, value: 1, to: start)
-            else {
+            guard let start = calendar.date(byAdding: .hour, value: -offset, to: currentHour) else {
                 return nil
             }
 
-            let bucketEvents = events.filter { $0.timestamp >= start && $0.timestamp < end }
-            return HourBucket(start: start, summary: summary(bucketEvents))
+            return HourBucket(start: start, summary: summary(eventsByHour[start] ?? []))
         }
     }
 
     private func recentDays(events: [CodexUsageEvent], now: Date) -> [DayBucket] {
         let currentDay = calendar.startOfDay(for: now)
+        let eventsByDay = Dictionary(grouping: events) { event in
+            calendar.startOfDay(for: event.timestamp)
+        }
 
         return (0..<7).reversed().compactMap { offset in
-            guard
-                let start = calendar.date(byAdding: .day, value: -offset, to: currentDay),
-                let end = calendar.date(byAdding: .day, value: 1, to: start)
-            else {
+            guard let start = calendar.date(byAdding: .day, value: -offset, to: currentDay) else {
                 return nil
             }
 
-            let bucketEvents = events.filter { $0.timestamp >= start && $0.timestamp < end }
-            return DayBucket(start: start, summary: summary(bucketEvents))
+            let dayEvents = eventsByDay[start] ?? []
+            return DayBucket(
+                start: start,
+                summary: summary(dayEvents),
+                hourlyBreakdown: hourlyBreakdown(events: dayEvents, dayStart: start),
+                modelBreakdown: modelBreakdown(events: dayEvents)
+            )
         }
+    }
+
+    private func hourlyBreakdown(events: [CodexUsageEvent], dayStart: Date) -> [HourBucket] {
+        let eventsByHour = Dictionary(grouping: events) { event in
+            calendar.dateInterval(of: .hour, for: event.timestamp)?.start ?? event.timestamp
+        }
+
+        return (0..<24).compactMap { hour in
+            guard let start = calendar.date(byAdding: .hour, value: hour, to: dayStart) else {
+                return nil
+            }
+
+            return HourBucket(start: start, summary: summary(eventsByHour[start] ?? []))
+        }
+    }
+
+    private func modelBreakdown(events: [CodexUsageEvent]) -> [ModelBreakdown] {
+        Dictionary(grouping: events, by: \.model)
+            .map { model, modelEvents in
+                ModelBreakdown(model: model, summary: summary(modelEvents))
+            }
+            .sorted { lhs, rhs in
+                if lhs.summary.totals.totalTokens == rhs.summary.totals.totalTokens {
+                    return lhs.model < rhs.model
+                }
+                return lhs.summary.totals.totalTokens > rhs.summary.totals.totalTokens
+            }
     }
 
     private func summary(_ events: [CodexUsageEvent]) -> UsageSummary {
@@ -81,7 +103,11 @@ public struct UsageAggregator: Sendable {
             )
         }
 
-        return UsageSummary(totals: totals, cost: pricing.estimate(events: events))
+        return UsageSummary(
+            totals: totals,
+            cost: pricing.estimate(events: events),
+            callCount: events.count
+        )
     }
 
     private func unique(_ events: [CodexUsageEvent]) -> [CodexUsageEvent] {
@@ -95,6 +121,7 @@ public struct UsageAggregator: Sendable {
 }
 
 private struct UsageEventKey: Hashable {
+    let sessionId: String
     let timestampMilliseconds: Int64
     let model: String
     let inputTokens: Int
@@ -104,6 +131,7 @@ private struct UsageEventKey: Hashable {
     let totalTokens: Int
 
     init(_ event: CodexUsageEvent) {
+        self.sessionId = event.sessionId
         self.timestampMilliseconds = Int64((event.timestamp.timeIntervalSince1970 * 1_000).rounded())
         self.model = event.model
         self.inputTokens = event.inputTokens

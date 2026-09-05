@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public struct CodexUsageParser: Sendable {
@@ -8,187 +9,327 @@ public struct CodexUsageParser: Sendable {
         sessionsRoot: URL,
         fallbackModifiedDate: Date
     ) throws -> [CodexUsageEvent] {
-        let sessionId = Self.sessionId(for: fileURL, sessionsRoot: sessionsRoot)
+        try parseFileIncrementally(
+            fileURL,
+            sessionsRoot: sessionsRoot,
+            fallbackModifiedDate: fallbackModifiedDate,
+            fromOffset: 0,
+            state: nil,
+            eventCutoff: nil
+        ).events
+    }
+
+    func parseFileIncrementally(
+        _ fileURL: URL,
+        sessionsRoot: URL,
+        fallbackModifiedDate: Date,
+        fromOffset: UInt64,
+        state initialState: CodexUsageParserState?,
+        eventCutoff: Date?
+    ) throws -> CodexUsageParseResult {
+        let fallbackSessionId = Self.sessionId(for: fileURL, sessionsRoot: sessionsRoot)
         var events: [CodexUsageEvent] = []
-        var currentModel: String?
-        var previousTotalUsage: RawUsage?
-        var shouldSkipSession = false
+        var state = initialState ?? CodexUsageParserState()
         let handle = try FileHandle(forReadingFrom: fileURL)
         defer {
             try? handle.close()
         }
+        try handle.seek(toOffset: fromOffset)
+
+        var chunkBuffer = Data(count: Self.chunkByteCount)
         var pendingLine = Data()
+        var pendingLineIsRelevant: Bool?
+        var discardingLine = false
+        var bytesRead: UInt64 = 0
 
         while true {
             try Task.checkCancellation()
-            let chunk = try handle.read(upToCount: Self.chunkByteCount) ?? Data()
-            if chunk.isEmpty {
+            let count = try Self.readChunk(into: &chunkBuffer, fileDescriptor: handle.fileDescriptor)
+            if count == 0 {
                 break
             }
+            bytesRead += UInt64(count)
 
             try Self.parseChunk(
-                chunk,
+                chunkBuffer,
+                validRange: chunkBuffer.startIndex..<(chunkBuffer.startIndex + count),
                 pendingLine: &pendingLine,
-                sessionId: sessionId,
+                pendingLineIsRelevant: &pendingLineIsRelevant,
+                discardingLine: &discardingLine,
+                fallbackSessionId: fallbackSessionId,
                 fileURL: fileURL,
                 fallbackModifiedDate: fallbackModifiedDate,
+                eventCutoff: eventCutoff,
                 events: &events,
-                currentModel: &currentModel,
-                previousTotalUsage: &previousTotalUsage,
-                shouldSkipSession: &shouldSkipSession
+                state: &state
             )
         }
 
+        let canResumeFromEOF = pendingLine.isEmpty && !discardingLine
         if !pendingLine.isEmpty {
             Self.parseLine(
                 pendingLine,
-                sessionId: sessionId,
+                fallbackSessionId: fallbackSessionId,
                 fileURL: fileURL,
                 fallbackModifiedDate: fallbackModifiedDate,
+                eventCutoff: eventCutoff,
                 events: &events,
-                currentModel: &currentModel,
-                previousTotalUsage: &previousTotalUsage,
-                shouldSkipSession: &shouldSkipSession
+                state: &state
             )
         }
 
-        return events
+        state.canResumeFromEOF = canResumeFromEOF
+        return CodexUsageParseResult(
+            events: events,
+            state: state,
+            endOffset: fromOffset + bytesRead,
+            bytesRead: bytesRead
+        )
     }
 
     private static func parseChunk(
         _ chunk: Data,
+        validRange: Range<Data.Index>,
         pendingLine: inout Data,
-        sessionId: String,
+        pendingLineIsRelevant: inout Bool?,
+        discardingLine: inout Bool,
+        fallbackSessionId: String,
         fileURL: URL,
         fallbackModifiedDate: Date,
+        eventCutoff: Date?,
         events: inout [CodexUsageEvent],
-        currentModel: inout String?,
-        previousTotalUsage: inout RawUsage?,
-        shouldSkipSession: inout Bool
+        state: inout CodexUsageParserState
     ) throws {
-        var lineStart = chunk.startIndex
+        var lineStart = validRange.lowerBound
 
-        while lineStart < chunk.endIndex {
+        while lineStart < validRange.upperBound {
             try Task.checkCancellation()
-            guard let newlineIndex = chunk[lineStart..<chunk.endIndex].firstIndex(of: Self.newlineByte) else {
-                pendingLine.append(contentsOf: chunk[lineStart..<chunk.endIndex])
+            if discardingLine {
+                guard let newlineIndex = Self.newlineIndex(
+                    in: chunk,
+                    range: lineStart..<validRange.upperBound
+                ) else {
+                    return
+                }
+                discardingLine = false
+                lineStart = chunk.index(after: newlineIndex)
+                continue
+            }
+
+            guard let newlineIndex = Self.newlineIndex(
+                in: chunk,
+                range: lineStart..<validRange.upperBound
+            ) else {
+                let remainder = lineStart..<validRange.upperBound
+                if pendingLineIsRelevant == true {
+                    pendingLine.append(contentsOf: chunk[remainder])
+                    return
+                }
+
+                let bytesNeeded = max(Self.markerProbeByteCount - pendingLine.count, 0)
+                let probeEnd = min(remainder.upperBound, remainder.lowerBound + bytesNeeded)
+                pendingLine.append(contentsOf: chunk[remainder.lowerBound..<probeEnd])
+                guard pendingLine.count >= Self.markerProbeByteCount else {
+                    return
+                }
+
+                if Self.lineMightContainUsage(pendingLine) {
+                    pendingLineIsRelevant = true
+                    pendingLine.append(contentsOf: chunk[probeEnd..<remainder.upperBound])
+                } else {
+                    pendingLine.removeAll(keepingCapacity: false)
+                    pendingLineIsRelevant = nil
+                    discardingLine = true
+                }
                 return
             }
 
             if pendingLine.isEmpty {
-                Self.parseLine(
-                    chunk.subdata(in: lineStart..<newlineIndex),
-                    sessionId: sessionId,
-                    fileURL: fileURL,
-                    fallbackModifiedDate: fallbackModifiedDate,
-                    events: &events,
-                    currentModel: &currentModel,
-                    previousTotalUsage: &previousTotalUsage,
-                    shouldSkipSession: &shouldSkipSession
-                )
+                let lineRange = lineStart..<newlineIndex
+                if Self.rangeMightContainUsage(chunk, range: lineRange) {
+                    Self.parseLine(
+                        chunk.subdata(in: lineRange),
+                        fallbackSessionId: fallbackSessionId,
+                        fileURL: fileURL,
+                        fallbackModifiedDate: fallbackModifiedDate,
+                        eventCutoff: eventCutoff,
+                        events: &events,
+                        state: &state
+                    )
+                }
             } else {
                 pendingLine.append(contentsOf: chunk[lineStart..<newlineIndex])
                 Self.parseLine(
                     pendingLine,
-                    sessionId: sessionId,
+                    fallbackSessionId: fallbackSessionId,
                     fileURL: fileURL,
                     fallbackModifiedDate: fallbackModifiedDate,
+                    eventCutoff: eventCutoff,
                     events: &events,
-                    currentModel: &currentModel,
-                    previousTotalUsage: &previousTotalUsage,
-                    shouldSkipSession: &shouldSkipSession
+                    state: &state
                 )
                 pendingLine.removeAll(keepingCapacity: false)
+                pendingLineIsRelevant = nil
             }
 
             lineStart = chunk.index(after: newlineIndex)
         }
     }
 
+    private static func readChunk(into data: inout Data, fileDescriptor: Int32) throws -> Int {
+        var result: Int
+        repeat {
+            result = data.withUnsafeMutableBytes { buffer in
+                Darwin.read(fileDescriptor, buffer.baseAddress, buffer.count)
+            }
+        } while result < 0 && errno == EINTR
+
+        guard result >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        return result
+    }
+
     private static func parseLine(
         _ lineData: Data,
-        sessionId: String,
+        fallbackSessionId: String,
         fileURL: URL,
         fallbackModifiedDate: Date,
+        eventCutoff: Date?,
         events: inout [CodexUsageEvent],
-        currentModel: inout String?,
-        previousTotalUsage: inout RawUsage?,
-        shouldSkipSession: inout Bool
+        state: inout CodexUsageParserState
     ) {
-        guard
-            lineMightContainUsage(lineData),
-            let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any]
-        else {
+        guard lineMightContainUsage(lineData) else {
             return
         }
 
-        if object["type"] as? String == "session_meta" {
+        autoreleasepool {
+            guard let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
+                return
+            }
+
+            if object["type"] as? String == "session_meta" {
+                guard let payload = object["payload"] as? [String: Any] else {
+                    return
+                }
+                state.currentSessionId = Self.normalizedModel(payload["id"]) ?? state.currentSessionId
+                state.sessionStartedAt = Self.parseTimestamp(object["timestamp"]) ?? state.sessionStartedAt
+                state.parentSessionId = Self.parentSessionId(from: payload)
+                return
+            }
+
+            if object["type"] as? String == "turn_context" {
+                if let payload = object["payload"] as? [String: Any], payload.keys.contains("model") {
+                    state.currentModel = Self.normalizedModel(payload["model"])
+                }
+                return
+            }
+
             if
+                object["type"] as? String == "event_msg",
                 let payload = object["payload"] as? [String: Any],
-                Self.isSubagentSession(payload)
+                payload["type"] as? String == "thread_settings_applied",
+                let settings = payload["thread_settings"] as? [String: Any]
             {
-                shouldSkipSession = true
-                events.removeAll(keepingCapacity: true)
+                if settings.keys.contains("model") {
+                    state.currentModel = Self.normalizedModel(settings["model"])
+                }
+                if settings.keys.contains("service_tier") {
+                    state.currentServiceTier = Self.serviceTier(from: settings["service_tier"])
+                }
+                return
             }
-            return
-        }
 
-        guard !shouldSkipSession else {
-            return
-        }
-
-        if object["type"] as? String == "turn_context" {
-            if let payload = object["payload"] as? [String: Any], payload.keys.contains("model") {
-                currentModel = Self.normalizedModel(payload["model"])
+            guard
+                object["type"] as? String == "event_msg",
+                let payload = object["payload"] as? [String: Any],
+                payload["type"] as? String == "token_count"
+            else {
+                return
             }
-            return
-        }
 
+            let timestamp = Self.parseTimestamp(object["timestamp"]) ?? fallbackModifiedDate
+            let info = payload["info"] as? [String: Any]
+            let lastUsage = (info?["last_token_usage"] as? [String: Any]).flatMap(RawUsage.init)
+            let totalUsage = (info?["total_token_usage"] as? [String: Any]).flatMap(RawUsage.init)
+            let usage = totalUsage.map { $0.subtracting(state.previousTotalUsage) } ?? lastUsage
+
+            if let totalUsage {
+                state.previousTotalUsage = totalUsage
+            }
+
+            guard let usage, usage.hasTokens else {
+                return
+            }
+
+            let payloadModel = Self.normalizedModel(payload["model"])
+            let infoModel = Self.normalizedModel(info?["model"])
+            if
+                state.parentSessionId != nil,
+                let sessionStartedAt = state.sessionStartedAt,
+                timestamp < sessionStartedAt
+            {
+                return
+            }
+            if let eventCutoff, timestamp < eventCutoff {
+                return
+            }
+
+            let model = payloadModel ?? infoModel ?? state.currentModel ?? "gpt-5"
+            let isFallbackModel = payloadModel == nil && infoModel == nil && state.currentModel == nil
+
+            events.append(CodexUsageEvent(
+                sessionId: state.currentSessionId ?? fallbackSessionId,
+                timestamp: timestamp,
+                model: model,
+                inputTokens: usage.inputTokens,
+                cachedInputTokens: usage.cachedInputTokens,
+                outputTokens: usage.outputTokens,
+                reasoningTokens: usage.reasoningTokens,
+                totalTokens: usage.totalTokens,
+                sourceFile: fileURL,
+                isFallbackModel: isFallbackModel,
+                serviceTier: state.currentServiceTier
+            ))
+        }
+    }
+
+    private static func parentSessionId(from payload: [String: Any]) -> String? {
         guard
-            object["type"] as? String == "event_msg",
-            let payload = object["payload"] as? [String: Any],
-            payload["type"] as? String == "token_count"
+            let source = payload["source"] as? [String: Any],
+            let subagent = source["subagent"] as? [String: Any],
+            let threadSpawn = subagent["thread_spawn"] as? [String: Any]
         else {
-            return
+            return nil
         }
+        return normalizedModel(threadSpawn["parent_thread_id"])
+    }
 
-        let timestamp = Self.parseTimestamp(object["timestamp"]) ?? fallbackModifiedDate
-        let info = payload["info"] as? [String: Any]
-        let lastUsage = (info?["last_token_usage"] as? [String: Any]).flatMap(RawUsage.init)
-        let totalUsage = (info?["total_token_usage"] as? [String: Any]).flatMap(RawUsage.init)
-        let usage = totalUsage.map { $0.subtracting(previousTotalUsage) } ?? lastUsage
-
-        if let totalUsage {
-            previousTotalUsage = totalUsage
+    private static func serviceTier(from value: Any?) -> UsageServiceTier? {
+        switch normalizedModel(value)?.lowercased() {
+        case "default", "standard":
+            return .standard
+        case "fast", "priority":
+            return .fast
+        default:
+            return nil
         }
-
-        guard let usage, usage.hasTokens else {
-            return
-        }
-
-        let payloadModel = Self.normalizedModel(payload["model"])
-        let infoModel = Self.normalizedModel(info?["model"])
-        let model = payloadModel ?? infoModel ?? currentModel ?? "gpt-5"
-        let isFallbackModel = payloadModel == nil && infoModel == nil && currentModel == nil
-
-        events.append(CodexUsageEvent(
-            sessionId: sessionId,
-            timestamp: timestamp,
-            model: model,
-            inputTokens: usage.inputTokens,
-            cachedInputTokens: usage.cachedInputTokens,
-            outputTokens: usage.outputTokens,
-            reasoningTokens: usage.reasoningTokens,
-            totalTokens: usage.totalTokens,
-            sourceFile: fileURL,
-            isFallbackModel: isFallbackModel
-        ))
     }
 
     private static func lineMightContainUsage(_ lineData: Data) -> Bool {
         relevantMarkers.contains { marker in
             lineData.range(of: marker) != nil
         }
+    }
+
+    private static func rangeMightContainUsage(_ data: Data, range: Range<Data.Index>) -> Bool {
+        relevantMarkers.contains { marker in
+            data.range(of: marker, in: range) != nil
+        }
+    }
+
+    private static func newlineIndex(in data: Data, range: Range<Data.Index>) -> Data.Index? {
+        data.range(of: newlineMarker, in: range)?.lowerBound
     }
 
     private static func normalizedModel(_ value: Any?) -> String? {
@@ -198,18 +339,6 @@ public struct CodexUsageParser: Sendable {
 
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private static func isSubagentSession(_ payload: [String: Any]) -> Bool {
-        if normalizedModel(payload["thread_source"]) == "subagent" {
-            return true
-        }
-
-        if let source = payload["source"] as? [String: Any], source["subagent"] != nil {
-            return true
-        }
-
-        return false
     }
 
     private static func sessionId(for fileURL: URL, sessionsRoot: URL) -> String {
@@ -247,15 +376,35 @@ public struct CodexUsageParser: Sendable {
     }
 
     private static let chunkByteCount = 1024 * 1024
+    private static let markerProbeByteCount = 4 * 1024
     private static let newlineByte = UInt8(ascii: "\n")
+    private static let newlineMarker = Data([newlineByte])
     private static let relevantMarkers = [
         Data(#""session_meta""#.utf8),
         Data(#""turn_context""#.utf8),
+        Data(#""thread_settings_applied""#.utf8),
         Data(#""token_count""#.utf8)
     ]
 }
 
-private struct RawUsage: Equatable {
+struct CodexUsageParserState {
+    var currentSessionId: String?
+    var parentSessionId: String?
+    var sessionStartedAt: Date?
+    var currentModel: String?
+    var currentServiceTier: UsageServiceTier?
+    var previousTotalUsage: RawUsage?
+    var canResumeFromEOF = true
+}
+
+struct CodexUsageParseResult {
+    let events: [CodexUsageEvent]
+    let state: CodexUsageParserState
+    let endOffset: UInt64
+    let bytesRead: UInt64
+}
+
+struct RawUsage: Equatable {
     let rawInputTokens: Int
     let inputTokens: Int
     let cachedInputTokens: Int

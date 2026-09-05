@@ -16,17 +16,15 @@ final class SmokeTests: XCTestCase {
             totalTokens: 140
         )
         let cost = CostEstimate(
-            usd: Decimal(string: "0.12"),
-            hasUnknownPricing: false,
-            usedFallbackMultiplier: false
+            credits: Decimal(string: "0.12"),
+            hasUnknownPricing: false
         )
         let summary = UsageSummary(totals: totals, cost: cost)
 
         XCTAssertEqual(summary.totals.inputTokens, 100)
         XCTAssertEqual(summary.totals.cachedInputTokens, 25)
-        XCTAssertEqual(summary.cost.usd, Decimal(string: "0.12"))
+        XCTAssertEqual(summary.cost.credits, Decimal(string: "0.12"))
         XCTAssertFalse(summary.cost.hasUnknownPricing)
-        XCTAssertFalse(summary.cost.usedFallbackMultiplier)
     }
 
     func testCodexUsageEventKeepsCachedInputTokensSeparate() {
@@ -43,5 +41,49 @@ final class SmokeTests: XCTestCase {
         )
 
         XCTAssertEqual(event.cachedInputTokens, 25)
+    }
+
+    func testCacheRateUsesOnlyCachedAndUncachedInputTokens() throws {
+        let totals = TokenTotals(
+            inputTokens: 25,
+            cachedInputTokens: 75,
+            outputTokens: 900,
+            reasoningTokens: 300,
+            totalTokens: 1_000
+        )
+
+        XCTAssertEqual(try XCTUnwrap(totals.cacheRate), 0.75, accuracy: 0.000_001)
+    }
+
+    func testCacheRateHandlesZeroAndFullyCachedInput() throws {
+        let uncached = TokenTotals(
+            inputTokens: 100,
+            cachedInputTokens: 0,
+            outputTokens: 0,
+            reasoningTokens: 0,
+            totalTokens: 100
+        )
+        let cached = TokenTotals(
+            inputTokens: 0,
+            cachedInputTokens: 100,
+            outputTokens: 0,
+            reasoningTokens: 0,
+            totalTokens: 100
+        )
+
+        XCTAssertEqual(try XCTUnwrap(uncached.cacheRate), 0, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(cached.cacheRate), 1, accuracy: 0.000_001)
+    }
+
+    func testCacheRateIsNilWithoutInputTokens() {
+        let totals = TokenTotals(
+            inputTokens: 0,
+            cachedInputTokens: 0,
+            outputTokens: 100,
+            reasoningTokens: 50,
+            totalTokens: 100
+        )
+
+        XCTAssertNil(totals.cacheRate)
     }
 }
