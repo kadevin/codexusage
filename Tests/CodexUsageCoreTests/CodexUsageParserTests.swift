@@ -2,6 +2,48 @@ import CodexUsageCore
 import XCTest
 
 final class CodexUsageParserTests: XCTestCase {
+    func testGpt6AstraUsageIsPricedAcrossSummaries() throws {
+        let fixture = try makeJSONL([
+            #"{"timestamp":"2026-09-05T10:00:00.000Z","type":"turn_context","payload":{"model":"gpt-6-astra"}}"#,
+            #"{"timestamp":"2026-09-05T10:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1000,"cached_input_tokens":400,"output_tokens":100,"reasoning_output_tokens":50,"total_tokens":1100}}}}"#,
+            #"{"timestamp":"2026-09-05T10:02:00.000Z","type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":{"service_tier":"priority"}}}"#,
+            #"{"timestamp":"2026-09-05T10:03:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1000,"cached_input_tokens":400,"output_tokens":100,"reasoning_output_tokens":50,"total_tokens":1100}}}}"#
+        ])
+        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
+        let events = try CodexUsageParser().parseFile(
+            fixture,
+            sessionsRoot: fixture.deletingLastPathComponent(),
+            fallbackModifiedDate: Date(timeIntervalSince1970: 0)
+        )
+        XCTAssertEqual(events.map(\.model), ["gpt-6-astra", "gpt-6-astra"])
+        XCTAssertFalse(events.contains(where: \.isFallbackModel))
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-09-05T10:30:00Z"))
+        let snapshot = UsageAggregator(
+            calendar: calendar,
+            pricing: PricingService(speedMode: .auto, autoDetectedFast: false)
+        ).snapshot(events: events, now: now)
+        let day = try XCTUnwrap(snapshot.recentDays.last)
+        let summaries = [
+            snapshot.today,
+            snapshot.currentHour,
+            try XCTUnwrap(snapshot.recentHours.last).summary,
+            try XCTUnwrap(snapshot.modelBreakdown.first).summary,
+            day.summary,
+            day.hourlyBreakdown[10].summary,
+            try XCTUnwrap(day.modelBreakdown.first).summary
+        ]
+
+        for summary in summaries {
+            XCTAssertEqual(summary.cost.credits, Decimal(string: "0.9975"))
+            XCTAssertFalse(summary.cost.hasUnknownPricing)
+            XCTAssertEqual(summary.callCount, 2)
+            XCTAssertEqual(summary.totals.totalTokens, 2200)
+        }
+    }
+
     func testParsesLastUsageAndTotalUsageDelta() throws {
         let fixture = Bundle.module.url(
             forResource: "codex-session",

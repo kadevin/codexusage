@@ -5,6 +5,7 @@ final class PricingServiceTests: XCTestCase {
     func testOfficialCodexCreditRates() {
         let service = PricingService(speedMode: .standard, autoDetectedFast: false)
         let expectations: [(String, Decimal)] = [
+            ("gpt-6-astra", Decimal(string: "1525")!),
             ("gpt-5.6-sol", Decimal(string: "610")!),
             ("gpt-5.6-terra", Decimal(string: "355")!),
             ("gpt-5.6-luna", Decimal(string: "35.5")!),
@@ -18,6 +19,35 @@ final class PricingServiceTests: XCTestCase {
 
             XCTAssertEqual(estimate.credits, expectedCredits, model)
             XCTAssertFalse(estimate.hasUnknownPricing, model)
+        }
+    }
+
+    func testGpt6AstraPricingAcrossModelNamesAndSpeedModes() {
+        let models = ["gpt-6-astra", " GPT-6-ASTRA ", "openai/gpt-6-astra"]
+        let modes: [(SpeedMode, Bool, UsageServiceTier?, Decimal)] = [
+            (.standard, true, .fast, 285),
+            (.fast, false, .standard, Decimal(string: "712.5")!),
+            (.auto, false, nil, 285),
+            (.auto, true, nil, Decimal(string: "712.5")!),
+            (.auto, true, .standard, 285),
+            (.auto, false, .fast, Decimal(string: "712.5")!)
+        ]
+
+        for model in models {
+            for (mode, detectedFast, tier, expectedCredits) in modes {
+                let service = PricingService(speedMode: mode, autoDetectedFast: detectedFast)
+                let estimate = service.estimate(events: [event(
+                    model: model,
+                    inputTokens: 600_000,
+                    cachedInputTokens: 400_000,
+                    outputTokens: 100_000,
+                    serviceTier: tier
+                )])
+                let context = "\(model), mode=\(mode), detectedFast=\(detectedFast), tier=\(String(describing: tier))"
+
+                XCTAssertEqual(estimate.credits, expectedCredits, context)
+                XCTAssertFalse(estimate.hasUnknownPricing, context)
+            }
         }
     }
 

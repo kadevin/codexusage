@@ -45,6 +45,10 @@ Credit estimates use OpenAI's current [Codex pricing rate card](https://learn.ch
 
 点数估算采用 OpenAI 当前的 [Codex 官方费率表](https://learn.chatgpt.com/docs/pricing)。快速模式仅按照 [Codex 速度设置](https://learn.chatgpt.com/docs/agent-configuration/speed)中明确支持的模型和倍率计算。
 
+GPT-6 Astra (`gpt-6-astra`) uses 250 input, 25 cached input, and 1,250 output credits per million tokens, with a 2.5× Fast multiplier. Standard, Fast, and Auto modes are supported.
+
+GPT-6 Astra（`gpt-6-astra`）每百万 Token 的输入、缓存输入和输出分别按 250、25 和 1,250 点估算，Fast 模式为 2.5 倍，支持标准、快速和自动速度模式。
+
 CodexUsage estimates the internal `codex-auto-review` label using the `gpt-5.6-luna` rate. This is a project-level compatibility rule because no separate official rate is published for that label.
 
 CodexUsage 将内部的 `codex-auto-review` 标签按照 `gpt-5.6-luna` 费率估算。这是项目的兼容规则，因为官方没有为该标签单独公布费率。
