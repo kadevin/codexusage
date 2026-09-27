@@ -21,7 +21,9 @@ public struct CodexExecutableResolver: Sendable {
         candidates.append(contentsOf: [
             URL(fileURLWithPath: "/opt/homebrew/bin/codex"),
             URL(fileURLWithPath: "/usr/local/bin/codex"),
+            applicationsDirectory.appendingPathComponent("ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"),
             applicationsDirectory.appendingPathComponent("ChatGPT.app/Contents/Resources/codex"),
+            applicationsDirectory.appendingPathComponent("Codex.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"),
             applicationsDirectory.appendingPathComponent("Codex.app/Contents/Resources/codex"),
             homeDirectory.appendingPathComponent(".local/bin/codex"),
             homeDirectory.appendingPathComponent(".npm-global/bin/codex"),

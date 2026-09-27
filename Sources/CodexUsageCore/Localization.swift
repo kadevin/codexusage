@@ -61,6 +61,12 @@ public struct AppStrings: Equatable, Sendable {
     public var officialQuotaUnavailable: String {
         text(en: "Official quota unavailable", zh: "官方额度暂不可用")
     }
+    public var officialQuotaStale: String {
+        text(en: "Quota refresh failed; showing last successful data", zh: "额度刷新失败，以下为上次成功读取的数据")
+    }
+    public var officialQuotaUpdated: String {
+        text(en: "Quota updated", zh: "额度更新于")
+    }
     public var used: String { text(en: "used", zh: "已用") }
     public var resets: String { text(en: "Resets", zh: "重置") }
     public var codexExecutable: String { text(en: "Codex Executable", zh: "Codex 可执行文件") }

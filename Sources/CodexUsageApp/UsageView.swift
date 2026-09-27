@@ -131,6 +131,14 @@ struct UsageView: View {
             }
 
             if let officialUsage = model.officialUsage, !officialUsage.limits.isEmpty {
+                if model.isOfficialUsageUnavailable {
+                    Label(model.strings.officialQuotaStale, systemImage: "exclamationmark.triangle")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+                Text("\(model.strings.officialQuotaUpdated): \(officialUsage.fetchedAt.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                 ForEach(Array(officialUsage.limits.enumerated()), id: \.element.id) { index, limit in
                     if index > 0 {
                         Divider()

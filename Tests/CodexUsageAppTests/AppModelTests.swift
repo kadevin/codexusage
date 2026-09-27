@@ -58,6 +58,59 @@ final class AppModelTests: XCTestCase {
         }
     }
 
+    func testFailedQuotaRefreshPreservesLastSnapshotAndRecoveryClearsWarning() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = directory.appendingPathComponent("fake-codex")
+        let response = directory.appendingPathComponent("response")
+        try "#!/bin/sh\ncat '\(response.path)'\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let defaults = UserDefaults.standard
+        let previousPath = defaults.object(forKey: "pathOverride")
+        let previousExecutable = defaults.object(forKey: "codexExecutablePath")
+        defer {
+            restorePreference(previousPath, key: "pathOverride")
+            restorePreference(previousExecutable, key: "codexExecutablePath")
+        }
+        let model = AppModel(startsImmediately: false)
+        model.pathOverride = directory.path
+        model.codexExecutablePath = executable.path
+        try #"{"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":29,"windowDurationMins":10080}}}}"#
+            .write(to: response, atomically: true, encoding: .utf8)
+        model.refresh()
+        try await waitUntil { model.officialUsage != nil }
+        let lastSuccessfulSnapshot = try XCTUnwrap(model.officialUsage)
+        XCTAssertFalse(model.isOfficialUsageUnavailable)
+
+        try "invalid response".write(to: response, atomically: true, encoding: .utf8)
+        model.refresh()
+        try await waitUntil { model.statusMessage != model.strings.loading }
+        XCTAssertTrue(model.isOfficialUsageUnavailable)
+        XCTAssertEqual(model.officialUsage, lastSuccessfulSnapshot)
+
+        try #"{"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":5,"windowDurationMins":10080}}}}"#
+            .write(to: response, atomically: true, encoding: .utf8)
+        model.refresh()
+        try await waitUntil { model.statusMessage != model.strings.loading }
+        XCTAssertFalse(model.isOfficialUsageUnavailable)
+        XCTAssertEqual(model.officialUsage?.limits.first?.windows.first?.remainingPercent, 95)
+        XCTAssertGreaterThan(try XCTUnwrap(model.officialUsage?.fetchedAt), lastSuccessfulSnapshot.fetchedAt)
+    }
+
+    func testMissingSavedExecutableFallsBackToDetectedCLI() throws {
+        guard let detected = CodexExecutableResolver().resolve(explicitPath: nil) else {
+            throw XCTSkip("No installed Codex CLI available for fallback verification")
+        }
+        let missingPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString).appendingPathComponent("codex").path
+        withTemporaryPreference(key: "codexExecutablePath", value: missingPath) {
+            let model = AppModel(startsImmediately: false)
+            XCTAssertEqual(model.codexExecutablePath, detected.path)
+        }
+    }
+
     func testPathOverrideDefaultsToResolvedCodexPathWhenPreferenceIsEmpty() {
         withTemporaryPathOverridePreference("") {
             let model = AppModel(strings: AppStrings(preferredLanguages: ["en"]), startsImmediately: false)

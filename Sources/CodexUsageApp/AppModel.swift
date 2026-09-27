@@ -116,6 +116,7 @@ final class AppModel {
                 return
             } catch {
                 self.snapshot = Self.emptySnapshot()
+                self.isOfficialUsageUnavailable = true
                 self.statusMessage = strings.unreadablePath
             }
         }
@@ -158,10 +159,13 @@ final class AppModel {
     }
 
     private static func initialExecutablePath(savedPath: String?) -> String {
+        if let executable = CodexExecutableResolver().resolve(explicitPath: savedPath) {
+            return executable.path
+        }
         if let savedPath, !savedPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return savedPath
         }
-        return CodexExecutableResolver().resolve(explicitPath: nil)?.path ?? ""
+        return ""
     }
 
     private nonisolated static func makeRefreshResult(

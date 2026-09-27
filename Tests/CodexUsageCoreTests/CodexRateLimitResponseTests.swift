@@ -119,6 +119,32 @@ final class CodexRateLimitResponseTests: XCTestCase {
         XCTAssertEqual(resolved?.standardizedFileURL, executable.standardizedFileURL)
     }
 
+    func testExecutableResolverFindsNestedCLIWhenLegacyPathIsMissing() throws {
+        for appName in ["ChatGPT.app", "Codex.app"] {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let resources = directory.appendingPathComponent("\(appName)/Contents/Resources")
+            let executable = resources.appendingPathComponent("codex-cli/CodexCLI.app/Contents/MacOS/codex")
+            try FileManager.default.createDirectory(
+                at: executable.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data().write(to: executable)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+            for savedPath in [nil, resources.appendingPathComponent("codex").path] as [String?] {
+                let resolved = CodexExecutableResolver().resolve(
+                    explicitPath: savedPath,
+                    environment: [:],
+                    homeDirectory: directory,
+                    applicationsDirectory: directory
+                )
+                XCTAssertEqual(resolved?.standardizedFileURL, executable.standardizedFileURL)
+            }
+        }
+    }
+
     func testClientReturnsAfterResponseWithoutWaitingForServerExit() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
