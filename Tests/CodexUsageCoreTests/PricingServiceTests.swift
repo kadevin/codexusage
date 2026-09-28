@@ -6,6 +6,8 @@ final class PricingServiceTests: XCTestCase {
         let service = PricingService(speedMode: .standard, autoDetectedFast: false)
         let expectations: [(String, Decimal)] = [
             ("gpt-6-astra", Decimal(string: "1525")!),
+            ("gpt-6-sol", Decimal(string: "305")!),
+            ("gpt-6-luna", Decimal(string: "15.25")!),
             ("gpt-5.6-sol", Decimal(string: "610")!),
             ("gpt-5.6-terra", Decimal(string: "355")!),
             ("gpt-5.6-luna", Decimal(string: "35.5")!),
@@ -48,6 +50,27 @@ final class PricingServiceTests: XCTestCase {
                 XCTAssertEqual(estimate.credits, expectedCredits, context)
                 XCTAssertFalse(estimate.hasUnknownPricing, context)
             }
+        }
+    }
+
+    func testMixedGpt6ModelsHaveCompletePricingAcrossSpeedModes() {
+        let events = [
+            event(model: "openai/GPT-6-SOL", inputTokens: 600_000, cachedInputTokens: 400_000, outputTokens: 100_000, serviceTier: .standard),
+            event(model: "gpt-6-luna", inputTokens: 600_000, cachedInputTokens: 400_000, outputTokens: 100_000, serviceTier: .fast),
+            event(model: "gpt-6-astra", inputTokens: 0, cachedInputTokens: 0, outputTokens: 1000, serviceTier: .standard)
+        ]
+        let expectations: [(SpeedMode, Decimal)] = [
+            (.standard, Decimal(string: "61.1")!),
+            (.fast, Decimal(string: "152.75")!),
+            (.auto, Decimal(string: "65.375")!)
+        ]
+
+        for (mode, expectedCredits) in expectations {
+            let service = PricingService(speedMode: mode, autoDetectedFast: false)
+            let estimate = service.estimate(events: events)
+
+            XCTAssertEqual(estimate.credits, expectedCredits, "\(mode)")
+            XCTAssertFalse(estimate.hasUnknownPricing, "\(mode)")
         }
     }
 

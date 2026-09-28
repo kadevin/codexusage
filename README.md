@@ -49,6 +49,10 @@ GPT-6 Astra (`gpt-6-astra`) uses 250 input, 25 cached input, and 1,250 output cr
 
 GPT-6 Astra（`gpt-6-astra`）每百万 Token 的输入、缓存输入和输出分别按 250、25 和 1,250 点估算，Fast 模式为 2.5 倍，支持标准、快速和自动速度模式。
 
+GPT-6 Sol (`gpt-6-sol`) uses 50 input, 5 cached input, and 250 output credits per million tokens. GPT-6 Luna (`gpt-6-luna`) uses 2.5, 0.25, and 12.5 respectively. Both support Standard, Fast (2.5×), and Auto modes.
+
+GPT-6 Sol（`gpt-6-sol`）每百万 Token 的输入、缓存输入和输出分别按 50、5 和 250 点估算；GPT-6 Luna（`gpt-6-luna`）分别按 2.5、0.25 和 12.5 点估算。两者均支持标准、快速（2.5 倍）和自动速度模式。
+
 CodexUsage estimates the internal `codex-auto-review` label using the `gpt-5.6-luna` rate. This is a project-level compatibility rule because no separate official rate is published for that label.
 
 CodexUsage 将内部的 `codex-auto-review` 标签按照 `gpt-5.6-luna` 费率估算。这是项目的兼容规则，因为官方没有为该标签单独公布费率。

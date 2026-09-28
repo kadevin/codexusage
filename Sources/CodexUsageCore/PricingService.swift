@@ -79,12 +79,24 @@ public struct PricingService: Sendable {
             .value
     }
 
-    // Official Codex credit rates plus documented compatibility estimates, updated 2026-09-05.
+    // Official Codex credit rates plus documented compatibility estimates, updated 2026-09-28.
     private static let priceTable: [String: ModelPrice] = [
         "gpt-6-astra": ModelPrice(
             inputCreditsPerMillion: 250,
             cachedInputCreditsPerMillion: 25,
             outputCreditsPerMillion: 1_250,
+            fastMultiplier: Decimal(string: "2.5")!
+        ),
+        "gpt-6-sol": ModelPrice(
+            inputCreditsPerMillion: 50,
+            cachedInputCreditsPerMillion: 5,
+            outputCreditsPerMillion: 250,
+            fastMultiplier: Decimal(string: "2.5")!
+        ),
+        "gpt-6-luna": ModelPrice(
+            inputCreditsPerMillion: Decimal(string: "2.5")!,
+            cachedInputCreditsPerMillion: Decimal(string: "0.25")!,
+            outputCreditsPerMillion: Decimal(string: "12.5")!,
             fastMultiplier: Decimal(string: "2.5")!
         ),
         "gpt-5.6-sol": ModelPrice(
