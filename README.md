@@ -49,6 +49,10 @@ GPT-6 Astra (`gpt-6-astra`) uses 250 input, 25 cached input, and 1,250 output cr
 
 GPT-6 Astra（`gpt-6-astra`）每百万 Token 的输入、缓存输入和输出分别按 250、25 和 1,250 点估算，Fast 模式为 2.5 倍，支持标准、快速和自动速度模式。
 
+GPT-6.1 Sol (`gpt-6.1-sol`) uses 50 input, 2.5 cached input, and 250 output credits per million tokens. It supports Standard, Fast (2.5×, following included subscription usage), and Auto modes.
+
+GPT-6.1 Sol（`gpt-6.1-sol`）每百万 Token 的输入、缓存输入和输出分别按 50、2.5 和 250 点估算，支持标准、快速（按订阅内额度的 2.5 倍估算）和自动速度模式。
+
 GPT-6 Sol (`gpt-6-sol`) uses 50 input, 5 cached input, and 250 output credits per million tokens. GPT-6 Luna (`gpt-6-luna`) uses 2.5, 0.25, and 12.5 respectively. Both support Standard, Fast (2.5×), and Auto modes.
 
 GPT-6 Sol（`gpt-6-sol`）每百万 Token 的输入、缓存输入和输出分别按 50、5 和 250 点估算；GPT-6 Luna（`gpt-6-luna`）分别按 2.5、0.25 和 12.5 点估算。两者均支持标准、快速（2.5 倍）和自动速度模式。
@@ -64,6 +68,10 @@ OpenAI 将 `gpt-5.3-codex-spark` 列为采用独立额度的研究预览模型�
 Local JSONL logs do not currently expose a reliable billing-mode marker for every event. CodexUsage therefore labels token-derived credits as local estimates; use the official quota section as the authoritative allowance status.
 
 本地 JSONL 日志目前并非每条记录都包含可靠的计费模式标记。因此，CodexUsage 将基于 token 推算的点数明确标为本地估算；额度状态应以“官方额度”区域为准。
+
+For GPT-6 and GPT-6.1, the app's Fast estimates follow the 2.5× included-subscription multiplier. OpenAI bills purchased credits and Enterprise pay-as-you-go Fast usage at 2×; the app does not distinguish those billing modes.
+
+GPT-6 和 GPT-6.1 的 Fast 估算沿用订阅内额度的 2.5 倍倍率；官方对购买点数及 Enterprise 按量付费的 Fast 用量采用 2 倍倍率，应用目前不区分这些计费方式。
 
 ## Install / 安装
 
