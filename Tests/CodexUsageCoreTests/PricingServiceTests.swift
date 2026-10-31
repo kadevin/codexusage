@@ -7,6 +7,7 @@ final class PricingServiceTests: XCTestCase {
         let expectations: [(String, Decimal)] = [
             ("gpt-6-astra", Decimal(string: "1525")!),
             ("gpt-6.1-sol", Decimal(string: "302.5")!),
+            ("gpt-6.1-terra", Decimal(string: "151.25")!),
             ("gpt-6-sol", Decimal(string: "305")!),
             ("gpt-6-luna", Decimal(string: "15.25")!),
             ("gpt-5.6-sol", Decimal(string: "610")!),
@@ -83,17 +84,47 @@ final class PricingServiceTests: XCTestCase {
         }
     }
 
+    func testGpt61TerraPricingAcrossModelNamesAndSpeedModes() {
+        let models = ["gpt-6.1-terra", " GPT-6.1-TERRA ", "openai/gpt-6.1-terra", "gpt-6.1-terra-2026-11-01"]
+        let modes: [(SpeedMode, Bool, UsageServiceTier?, Decimal)] = [
+            (.standard, true, .fast, 28),
+            (.fast, false, .standard, 70),
+            (.auto, false, nil, 28),
+            (.auto, true, nil, 70),
+            (.auto, true, .standard, 28),
+            (.auto, false, .fast, 70)
+        ]
+
+        for model in models {
+            for (mode, detectedFast, tier, expectedCredits) in modes {
+                let service = PricingService(speedMode: mode, autoDetectedFast: detectedFast)
+                let estimate = service.estimate(events: [event(
+                    model: model,
+                    inputTokens: 600_000,
+                    cachedInputTokens: 400_000,
+                    outputTokens: 100_000,
+                    serviceTier: tier
+                )])
+                let context = "\(model), mode=\(mode), detectedFast=\(detectedFast), tier=\(String(describing: tier))"
+
+                XCTAssertEqual(estimate.credits, expectedCredits, context)
+                XCTAssertFalse(estimate.hasUnknownPricing, context)
+            }
+        }
+    }
+
     func testMixedGpt6ModelsHaveCompletePricingAcrossSpeedModes() {
         let events = [
             event(model: "gpt-6.1-sol", inputTokens: 600_000, cachedInputTokens: 400_000, outputTokens: 100_000, serviceTier: .standard),
+            event(model: "gpt-6.1-terra", inputTokens: 600_000, cachedInputTokens: 400_000, outputTokens: 100_000, serviceTier: .fast),
             event(model: "openai/GPT-6-SOL", inputTokens: 600_000, cachedInputTokens: 400_000, outputTokens: 100_000, serviceTier: .standard),
             event(model: "gpt-6-luna", inputTokens: 600_000, cachedInputTokens: 400_000, outputTokens: 100_000, serviceTier: .fast),
             event(model: "gpt-6-astra", inputTokens: 0, cachedInputTokens: 0, outputTokens: 1000, serviceTier: .standard)
         ]
         let expectations: [(SpeedMode, Decimal)] = [
-            (.standard, Decimal(string: "117.1")!),
-            (.fast, Decimal(string: "292.75")!),
-            (.auto, Decimal(string: "121.375")!)
+            (.standard, Decimal(string: "145.1")!),
+            (.fast, Decimal(string: "362.75")!),
+            (.auto, Decimal(string: "191.375")!)
         ]
 
         for (mode, expectedCredits) in expectations {
