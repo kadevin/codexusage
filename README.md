@@ -35,10 +35,12 @@ A local macOS menu bar app for Codex quota, token usage, and estimated credits.
 
 **官方额度是账号状态的依据；本地点数仅供估算。** 日志中的计费信息可能不完整，估算值不等同于账单。
 
-以下为应用内置的标准费率，更新于 **2026-11-01**，单位为点数 / 百万 Token：
+以下为应用内置的标准费率，更新于 **2026-11-23**，单位为点数 / 百万 Token：
 
 | 模型 | 输入 | 缓存输入 | 输出 |
 | --- | ---: | ---: | ---: |
+| GPT-6.2 Astra | 200 | 10 | 1,000 |
+| GPT-6.2 Sol | 50 | 2.5 | 250 |
 | GPT-6 Astra | 250 | 25 | 1,250 |
 | GPT-6.1 Sol | 50 | 2.5 | 250 |
 | GPT-6.1 Terra | 25 | 1.25 | 125 |
@@ -46,7 +48,7 @@ A local macOS menu bar app for Codex quota, token usage, and estimated credits.
 | GPT-6 Luna | 2.5 | 0.25 | 12.5 |
 
 - 支持标准、快速和自动模式；自动模式优先使用日志记录的速度档位，缺失时参考本地配置。
-- 上述模型的 Fast 模式按订阅内额度的 **2.5 倍**估算，应用不区分购买点数等计费方式。
+- Fast 模式按订阅内额度估算：GPT-6.2 Astra / Sol 为 **2 倍**，表中其他模型为 **2.5 倍**；应用不区分购买点数等计费方式，暂不单独识别 Ultrafast 档位。
 - 已知与未知模型混用时，仅汇总已知部分，并显示“部分”提示。
 
 费率来源：[Codex 官方计价](https://learn.chatgpt.com/docs/pricing) · [速度模式说明](https://learn.chatgpt.com/docs/agent-configuration/speed)。完整内置费率见 [PricingService.swift](Sources/CodexUsageCore/PricingService.swift)。
